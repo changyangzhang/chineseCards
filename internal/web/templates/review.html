@@ -156,12 +156,12 @@
         <h2>No cards in the deck</h2>
         <p><a href="/import">Import some notes</a> to get started.</p>
         {{end}}
+        {{if .Motivation}}
+        <p class="nudge nudge-{{.Motivation.Tone}}">{{.Motivation.Text}}</p>
+        {{end}}
         {{else}}
         <h2>All done!</h2>
         <p>No cards waiting.</p>
-        {{end}}
-        {{if .Motivation}}
-        <p class="nudge nudge-{{.Motivation.Tone}}">{{.Motivation.Text}}</p>
         {{end}}
         <a class="btn" href="/">Home</a>
         <a class="btn" href="/import">Import</a>
