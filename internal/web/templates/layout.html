@@ -18,6 +18,11 @@
         <a href="/cards">Cards</a>
         <a href="/stats">Stats</a>
         <a href="/settings">Settings</a>
+        {{if auth_enabled}}
+        <form method="post" action="/logout" class="nav-logout">
+            <button type="submit" class="nav-logout-btn" title="Log out">Logout</button>
+        </form>
+        {{end}}
     </nav>
 </header>
 <main>

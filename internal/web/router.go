@@ -17,18 +17,24 @@ func (s *Server) Router() http.Handler {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// Everything below this point requires basic auth when BASIC_USER/
-	// BASIC_PASS are set (no-op otherwise, so local dev is unchanged).
-	// Routes live in a Group so the middleware applies only to them.
+	// Login/logout live OUTSIDE the auth group so the user can actually
+	// reach them while unauthenticated. The CSS stylesheet is also exempt
+	// so the login page can style itself without an auth challenge.
+	r.Get("/login", s.handleLoginGet)
+	r.Post("/login", s.handleLoginPost)
+	r.Post("/logout", s.handleLogout)
+	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(StaticFS()))))
+
+	// Everything below this point requires auth when BASIC_USER/BASIC_PASS
+	// are set (no-op otherwise, so local dev is unchanged). Accepts either
+	// a signed session cookie (form login) or HTTP Basic header (curl).
 	r.Group(func(r chi.Router) {
-		r.Use(basicAuth(s.cfg.BasicUser, s.cfg.BasicPass))
+		r.Use(authMiddleware(s.cfg.BasicUser, s.cfg.BasicPass))
 
 		r.Get("/", s.handleHome)
 		r.Get("/import", s.handleImportGet)
 		r.Post("/import", s.handleImportPost)
 		r.Get("/cards", s.handleCardsList)
-
-		r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(StaticFS()))))
 
 		r.Get("/review", s.handleReview)
 		r.Post("/review/{id}", s.handleReviewPost)

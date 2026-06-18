@@ -19,16 +19,20 @@ type Renderer struct {
 	templates map[string]*template.Template
 }
 
-// templateFuncs are available in every page template.
-var templateFuncs = template.FuncMap{
-	"sub": func(a, b int) int { return a - b },
-}
-
-func NewRenderer() (*Renderer, error) {
-	pages := []string{"home", "import", "cards", "review", "stats", "card_edit", "settings", "chat"}
+// NewRenderer parses every page template, binding the supplied funcs (e.g.
+// "auth_enabled" so the layout can decide whether to show the Logout link).
+// `extraFuncs` is the standard html/template FuncMap shape (map[string]any).
+func NewRenderer(extraFuncs map[string]any) (*Renderer, error) {
+	pages := []string{"home", "import", "cards", "review", "stats", "card_edit", "settings", "chat", "login"}
+	funcs := template.FuncMap{
+		"sub": func(a, b int) int { return a - b },
+	}
+	for name, fn := range extraFuncs {
+		funcs[name] = fn
+	}
 	r := &Renderer{templates: make(map[string]*template.Template)}
 	for _, p := range pages {
-		tmpl, err := template.New(p).Funcs(templateFuncs).ParseFS(
+		tmpl, err := template.New(p).Funcs(funcs).ParseFS(
 			templateFS, "templates/layout.html", "templates/"+p+".html")
 		if err != nil {
 			return nil, fmt.Errorf("parse template %s: %w", p, err)

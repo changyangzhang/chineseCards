@@ -55,7 +55,10 @@ func Run() error {
 		}
 	}
 
-	renderer, err := web.NewRenderer()
+	authEnabled := cfg.BasicUser != "" && cfg.BasicPass != ""
+	renderer, err := web.NewRenderer(map[string]any{
+		"auth_enabled": func() bool { return authEnabled },
+	})
 	if err != nil {
 		return err
 	}

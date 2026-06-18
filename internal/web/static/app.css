@@ -438,6 +438,90 @@ table.cards tr:last-child td { border-bottom: none; }
 .chat-clear-form { margin-top: 1rem; text-align: right; }
 .chat-clear-btn { color: var(--muted); }
 
+/* ---- Login page ---- */
+.login-shell {
+    min-height: 60vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 0;
+}
+.login-card {
+    width: 100%;
+    max-width: 360px;
+    padding: 2rem 1.75rem 1.75rem;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.04);
+}
+.login-title {
+    margin: 0 0 0.25rem 0;
+    font-size: 1.5rem;
+    font-weight: 700;
+    text-align: center;
+}
+.login-sub {
+    margin: 0 0 1.5rem 0;
+    text-align: center;
+    font-size: 0.95rem;
+}
+.login-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+}
+.login-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.login-form input {
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: inherit;
+    font-size: 1rem;
+    text-transform: none;
+    letter-spacing: normal;
+}
+.login-form input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+.login-submit { margin-top: 0.4rem; }
+.login-error {
+    background: #fdecea;
+    color: #8a2424;
+    padding: 0.55rem 0.75rem;
+    border-radius: 8px;
+    border-left: 4px solid #dc3545;
+    font-size: 0.92rem;
+    margin: 0 0 1rem 0;
+}
+@media (prefers-color-scheme: dark) {
+    .login-error { background: #3a1212; color: #f1b1b3; }
+}
+
+/* ---- Nav logout ---- */
+.nav-logout { margin: 0; padding: 0; display: inline; }
+.nav-logout-btn {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-family: inherit;
+    font-size: inherit;
+    cursor: pointer;
+    padding: 0;
+}
+.nav-logout-btn:hover { color: var(--accent); }
+
 .cloze-hint {
     font-size: 0.9rem;
     color: var(--muted);

@@ -1,0 +1,28 @@
+{{define "title"}}Sign in — Chinese Cards{{end}}
+{{define "content"}}
+<div class="login-shell">
+    <div class="login-card">
+        <h1 class="login-title">🇨🇳 Chinese Cards</h1>
+        <p class="muted login-sub">Sign in to keep going.</p>
+
+        {{if .Error}}
+        <p class="login-error">{{.Error}}</p>
+        {{end}}
+
+        <form method="post" action="/login" class="login-form">
+            <input type="hidden" name="next" value="{{.NextPath}}">
+            <label>
+                <span>Username</span>
+                <input type="text" name="username" autocomplete="username"
+                       autocapitalize="off" autocorrect="off" autofocus required>
+            </label>
+            <label>
+                <span>Password</span>
+                <input type="password" name="password"
+                       autocomplete="current-password" required>
+            </label>
+            <button type="submit" class="btn primary login-submit">Sign in</button>
+        </form>
+    </div>
+</div>
+{{end}}
