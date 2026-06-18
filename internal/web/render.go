@@ -25,7 +25,7 @@ var templateFuncs = template.FuncMap{
 }
 
 func NewRenderer() (*Renderer, error) {
-	pages := []string{"home", "import", "cards", "review", "stats", "card_edit", "settings"}
+	pages := []string{"home", "import", "cards", "review", "stats", "card_edit", "settings", "chat"}
 	r := &Renderer{templates: make(map[string]*template.Template)}
 	for _, p := range pages {
 		tmpl, err := template.New(p).Funcs(templateFuncs).ParseFS(

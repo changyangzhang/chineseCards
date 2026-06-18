@@ -319,6 +319,120 @@ table.cards tr:last-child td { border-bottom: none; }
     font-size: 0.78rem;
 }
 
+/* ---- Chat tab ---- */
+.chat-root { margin: 1.25rem 0; }
+
+.chat-thread {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    min-height: 200px;
+    margin-bottom: 1rem;
+}
+
+.chat-empty {
+    padding: 1.5rem 1rem;
+    border: 1px dashed var(--border);
+    border-radius: 10px;
+    text-align: center;
+}
+.chat-suggestions {
+    list-style: none;
+    padding: 0;
+    margin: 0.6rem 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.chat-msg {
+    display: flex;
+    flex-direction: column;
+    max-width: 85%;
+    padding: 0.7rem 0.9rem;
+    border-radius: 12px;
+    line-height: 1.55;
+    white-space: pre-wrap;     /* preserve line breaks from the LLM */
+    word-wrap: break-word;
+}
+.chat-msg-role {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    opacity: 0.6;
+    margin-bottom: 0.2rem;
+}
+.chat-msg-body { font-size: 1rem; }
+
+.chat-msg-user {
+    align-self: flex-end;
+    background: var(--accent);
+    color: white;
+    border-bottom-right-radius: 4px;
+}
+.chat-msg-user .chat-msg-role { color: rgba(255, 255, 255, 0.85); }
+
+.chat-msg-assistant {
+    align-self: flex-start;
+    background: var(--card-bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 4px;
+}
+
+.chat-error {
+    color: var(--warn-fg);
+    background: var(--warn-bg);
+    padding: 0.6rem 0.8rem;
+    border-radius: 8px;
+    font-size: 0.92rem;
+    align-self: stretch;
+}
+
+.chat-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    margin-top: 0.5rem;
+}
+.chat-form textarea {
+    width: 100%;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--card-bg);
+    color: var(--fg);
+    font-family: inherit;
+    font-size: 1rem;
+    line-height: 1.45;
+    resize: vertical;
+    min-height: 60px;
+}
+.chat-form textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+.chat-form-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.8rem;
+}
+.chat-busy {
+    color: var(--muted);
+    font-size: 0.9rem;
+    display: none;
+    align-items: center;
+    gap: 0.4rem;
+}
+/* When HTMX is mid-request, htmx-request appears on the form. */
+.chat-form.htmx-request .chat-busy { display: inline-flex; }
+.chat-form.htmx-request button[type="submit"] { opacity: 0.55; }
+
+.chat-clear-form { margin-top: 1rem; text-align: right; }
+.chat-clear-btn { color: var(--muted); }
+
 .cloze-hint {
     font-size: 0.9rem;
     color: var(--muted);

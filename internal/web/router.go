@@ -48,6 +48,10 @@ func (s *Server) Router() http.Handler {
 		r.Post("/entries/{id}/typo-accept", s.handleTypoAccept)
 		r.Post("/entries/{id}/typo-dismiss", s.handleTypoDismiss)
 
+		r.Get("/chat", s.handleChatGet)
+		r.Post("/chat", s.handleChatPost)
+		r.Post("/chat/clear", s.handleChatClear)
+
 		r.Post("/admin/enrich-pending", s.handleAdminEnrichPending)
 	})
 

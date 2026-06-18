@@ -1,0 +1,73 @@
+{{define "title"}}Chat — Chinese Cards{{end}}
+{{define "content"}}
+<h1>Ask your tutor</h1>
+<p class="muted">Questions about Chinese — grammar, pinyin, characters, anything. Hanzi always come with pinyin and English.</p>
+
+{{if not .LLMEnabled}}
+<p class="hint warning">Chat needs <code>GEMINI_API_KEY</code> set in <code>.env</code> (free at <a href="https://aistudio.google.com/apikey">aistudio.google.com/apikey</a>).</p>
+{{end}}
+
+<div id="chat-root" class="chat-root">
+    {{template "chat-thread" .}}
+</div>
+
+<form class="chat-form" hx-post="/chat" hx-target="#chat-root" hx-swap="innerHTML" hx-disabled-elt="find textarea, find button"
+      hx-on::after-request="this.querySelector('textarea').value=''; this.querySelector('textarea').focus(); window.scrollTo(0, document.body.scrollHeight)">
+    <textarea name="message" rows="2" placeholder="What does 了 actually do at the end of a sentence?" required></textarea>
+    <div class="chat-form-actions">
+        <span class="chat-busy" aria-hidden="true">
+            <span class="spinner"></span> Tutor is thinking…
+        </span>
+        <button type="submit" class="btn primary">Send</button>
+    </div>
+</form>
+
+{{if .Messages}}
+<form method="post" action="/chat/clear" class="chat-clear-form"
+      onsubmit="return confirm('Clear the entire chat history? This cannot be undone.');">
+    <button type="submit" class="btn btn-sm chat-clear-btn">🗑 Clear chat</button>
+</form>
+{{end}}
+
+<script>
+    // Scroll the thread to the bottom on first load so the latest turn is visible.
+    (function () {
+        window.scrollTo(0, document.body.scrollHeight);
+        // Cmd/Ctrl+Enter in the textarea submits.
+        const ta = document.querySelector('.chat-form textarea');
+        if (!ta) return;
+        ta.addEventListener('keydown', function (e) {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                e.preventDefault();
+                ta.form.requestSubmit();
+            }
+        });
+    })();
+</script>
+{{end}}
+
+{{define "chat-thread"}}
+<div class="chat-thread">
+    {{if not .Messages}}
+    <div class="chat-empty">
+        <p class="muted">No messages yet. Ask anything — try one of these to start:</p>
+        <ul class="chat-suggestions muted">
+            <li>How do I say "thank you"?</li>
+            <li>When do I use 是 vs 在?</li>
+            <li>Explain the four tones</li>
+            <li>What's a measure word?</li>
+        </ul>
+    </div>
+    {{else}}
+    {{range .Messages}}
+    <div class="chat-msg chat-msg-{{.Role}}">
+        <div class="chat-msg-role">{{if eq .Role "user"}}You{{else}}Tutor{{end}}</div>
+        <div class="chat-msg-body">{{.Content}}</div>
+    </div>
+    {{end}}
+    {{end}}
+    {{if .ErrorText}}
+    <p class="chat-error">{{.ErrorText}}</p>
+    {{end}}
+</div>
+{{end}}

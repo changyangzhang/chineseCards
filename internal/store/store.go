@@ -1324,6 +1324,57 @@ func (s *Store) ApplyReview(
 	return tx.Commit()
 }
 
+// ChatMessage is one turn in the tutor-chat thread.
+type ChatMessage struct {
+	ID        int64
+	Role      string // "user" | "assistant"
+	Content   string
+	CreatedAt time.Time
+}
+
+// InsertChatMessage appends a turn to the chat thread.
+func (s *Store) InsertChatMessage(ctx context.Context, role, content string) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO chat_messages (role, content) VALUES (?, ?)`, role, content)
+	if err != nil {
+		return 0, fmt.Errorf("insert chat message: %w", err)
+	}
+	id, _ := res.LastInsertId()
+	return id, nil
+}
+
+// ListChatMessages returns the whole thread in chronological order.
+func (s *Store) ListChatMessages(ctx context.Context) ([]ChatMessage, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, role, content, created_at FROM chat_messages ORDER BY id ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("list chat messages: %w", err)
+	}
+	defer rows.Close()
+	var out []ChatMessage
+	for rows.Next() {
+		var m ChatMessage
+		var createdStr string
+		if err := rows.Scan(&m.ID, &m.Role, &m.Content, &createdStr); err != nil {
+			return nil, err
+		}
+		if t, err := parseSQLiteTime(createdStr); err == nil {
+			m.CreatedAt = t
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// ClearChatMessages wipes the chat thread (irreversible).
+func (s *Store) ClearChatMessages(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM chat_messages`)
+	if err != nil {
+		return fmt.Errorf("clear chat messages: %w", err)
+	}
+	return nil
+}
+
 func parseSQLiteTime(s string) (time.Time, error) {
 	layouts := []string{
 		"2006-01-02 15:04:05",
