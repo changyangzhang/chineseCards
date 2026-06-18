@@ -811,8 +811,10 @@ type quizCard struct {
 	ID               int64
 	Mode             quizMode
 	Front            string   // shown to the user
+	FrontPinyin      string   // pinyin under the front when it's hanzi; "" otherwise
 	Correct          string   // grading answer for THIS render
 	Choices          []string // shuffled options including the correct answer
+	ChoicesPinyin    []string // pinyin under each choice (parallel to Choices); entries "" when N/A
 	HintBelow        string   // optional sub-hint (e.g. English for cloze)
 	IsCloze          bool     // affects styling (monospace, gold border)
 	IsTranslate      bool
@@ -866,18 +868,22 @@ func (s *Server) prepareQuizCard(ctx context.Context, card *store.ReviewCard) (*
 	// What modes are available for this entry?
 	hasEnglish := card.Back != ""
 
-	// Find a sentence we can present as cloze, if any.
-	var clozeSentence, clozeEnglish string
+	// Find a sentence we can present as cloze, if any. clozePinyin holds the
+	// toned pinyin for that sentence (DB-supplied when the LLM enriched it,
+	// computed at render time otherwise).
+	var clozeSentence, clozeEnglish, clozePinyin string
 	switch entry.Kind {
 	case model.KindSentence, model.KindSentenceUntranslated:
 		clozeSentence = card.Front // the sentence itself
 		clozeEnglish = card.Back   // may be empty
+		clozePinyin = pinyinOr(entry.Pinyin, clozeSentence)
 	case model.KindWord, model.KindPhrase, model.KindVerb:
 		examples, _ := s.store.ListExampleSentencesForEntry(ctx, entry.ID)
 		if len(examples) > 0 {
 			ex := examples[rand.IntN(len(examples))]
 			clozeSentence = ex.Chinese
 			clozeEnglish = ex.English
+			clozePinyin = pinyinOr(ex.Pinyin, ex.Chinese)
 		}
 	}
 
@@ -904,38 +910,54 @@ func (s *Server) prepareQuizCard(ctx context.Context, card *store.ReviewCard) (*
 	mode := modes[rand.IntN(len(modes))]
 
 	q := &quizCard{ID: card.ID, Mode: mode}
-	var distractorColumn string
+	entryPinyin := pinyinOr(entry.Pinyin, card.Front)
+
 	switch mode {
 	case ModeMCTranslate:
 		q.Front = card.Front  // Chinese
 		q.Correct = card.Back // English
 		q.IsTranslate = true
 		q.IsFrontChinese = true
-		distractorColumn = "back"
+		q.FrontPinyin = entryPinyin
+		// Choices are English (back column) — no pinyin to surface.
+		distractors, err := s.store.GetDistractors(ctx, "back", card.ID, q.Correct, 3)
+		if err != nil {
+			return nil, err
+		}
+		q.Choices = buildChoices(q.Correct, distractors)
+		q.ChoicesPinyin = make([]string, len(q.Choices)) // all "" by length
 	case ModeMCTranslateRev:
 		q.Front = card.Back    // English shown
 		q.Correct = card.Front // Chinese expected
 		q.IsTranslate = true
 		q.IsChoicesChinese = true
-		distractorColumn = "front"
+		// Choices are Chinese — fetch pinyin alongside.
+		distractors, err := s.store.GetChineseDistractors(ctx, card.ID, q.Correct, 3)
+		if err != nil {
+			return nil, err
+		}
+		q.Choices, q.ChoicesPinyin = buildChinChoices(q.Correct, entryPinyin, distractors)
 	case ModeMCCloze:
 		q.Front, q.Correct = rotateBlank(clozeSentence)
 		q.IsCloze = true
 		q.IsFrontChinese = true
 		q.IsChoicesChinese = true
+		q.FrontPinyin = pinyinOr(clozePinyin, q.Front)
 		if clozeEnglish != "" {
 			q.HintBelow = clozeEnglish
 		}
-		distractorColumn = "cloze_answer"
+		// Cloze choices are individual words — we don't have per-word pinyin
+		// stored, so fall back to the offline library per choice.
+		distractors, err := s.store.GetDistractors(ctx, "cloze_answer", card.ID, q.Correct, 3)
+		if err != nil {
+			return nil, err
+		}
+		q.Choices = buildChoices(q.Correct, distractors)
+		q.ChoicesPinyin = make([]string, len(q.Choices))
+		for i, c := range q.Choices {
+			q.ChoicesPinyin[i] = pinyinFor(c)
+		}
 	}
-
-	distractors, err := s.store.GetDistractors(ctx, distractorColumn, card.ID, q.Correct, 3)
-	if err != nil {
-		return nil, err
-	}
-	// Even with 0 distractors we still render MC — a single "correct" button.
-	// Trivially passable but advances SM-2.
-	q.Choices = buildChoices(q.Correct, distractors)
 	return q, nil
 }
 

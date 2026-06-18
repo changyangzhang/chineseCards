@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"chineseCards/internal/parser"
+	"chineseCards/internal/store"
 )
 
 // rotateBlank picks a random non-stopword token from the sentence and returns
@@ -40,6 +41,27 @@ func buildChoices(correct string, distractors []string) []string {
 	out = append(out, distractors...)
 	rand.Shuffle(len(out), func(i, j int) { out[i], out[j] = out[j], out[i] })
 	return out
+}
+
+// buildChinChoices is buildChoices for Chinese-side choices: it keeps each
+// option paired with its pinyin through the shuffle. Distractors that have
+// no DB-supplied pinyin get one computed via the offline library so every
+// hanzi choice has reading help underneath.
+func buildChinChoices(correct, correctPinyin string, distractors []store.DistractorChoice) (texts, pinyins []string) {
+	n := 1 + len(distractors)
+	texts = make([]string, 0, n)
+	pinyins = make([]string, 0, n)
+	texts = append(texts, correct)
+	pinyins = append(pinyins, pinyinOr(correctPinyin, correct))
+	for _, d := range distractors {
+		texts = append(texts, d.Text)
+		pinyins = append(pinyins, pinyinOr(d.Pinyin, d.Text))
+	}
+	rand.Shuffle(n, func(i, j int) {
+		texts[i], texts[j] = texts[j], texts[i]
+		pinyins[i], pinyins[j] = pinyins[j], pinyins[i]
+	})
+	return texts, pinyins
 }
 
 func stripTrailingPuncts(s string) string {

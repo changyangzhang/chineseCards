@@ -293,6 +293,32 @@ table.cards tr:last-child td { border-bottom: none; }
 }
 .nudge-streak, .nudge-milestone { font-weight: 500; }
 
+/* Pinyin reading help under hanzi. Smaller and muted so it doesn't
+   compete with the characters themselves — read hanzi first, then
+   glance below to check. */
+.pinyin {
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-style: normal;
+    letter-spacing: 0.01em;
+    line-height: 1.4;
+}
+.pinyin-front {
+    margin-top: 0.4rem;
+    font-size: 1rem; /* slightly larger because the front hanzi is huge */
+}
+.choice-body {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    flex: 1;
+    gap: 0.1rem;
+    text-align: left;
+}
+.pinyin-choice {
+    font-size: 0.78rem;
+}
+
 .cloze-hint {
     font-size: 0.9rem;
     color: var(--muted);

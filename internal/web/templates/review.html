@@ -88,6 +88,7 @@
             <button type="button" class="speak-btn" data-text="{{.Card.Front}}" aria-label="Speak Mandarin" title="Speak Mandarin">🔊</button>
             {{end}}
         </div>
+        {{if .Card.FrontPinyin}}<div class="pinyin pinyin-front">{{.Card.FrontPinyin}}</div>{{end}}
         {{if .Card.HintBelow}}<div class="cloze-hint">{{.Card.HintBelow}}</div>{{end}}
     </div>
 
@@ -98,11 +99,14 @@
         <input type="hidden" name="hint" value="{{.Card.HintBelow}}">
 
         <div class="choice-grid">
-            {{range .Card.Choices}}
-            <button type="submit" name="choice" value="{{.}}" class="choice-btn">
-                <span class="choice-text">{{.}}</span>
+            {{range $i, $c := .Card.Choices}}
+            <button type="submit" name="choice" value="{{$c}}" class="choice-btn">
+                <span class="choice-body">
+                    <span class="choice-text">{{$c}}</span>
+                    {{with index $.Card.ChoicesPinyin $i}}{{if .}}<span class="pinyin pinyin-choice">{{.}}</span>{{end}}{{end}}
+                </span>
                 {{if $.Card.IsChoicesChinese}}
-                <span class="speak-icon" data-text="{{.}}" aria-label="Speak">🔊</span>
+                <span class="speak-icon" data-text="{{$c}}" aria-label="Speak">🔊</span>
                 {{end}}
             </button>
             {{end}}

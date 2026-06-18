@@ -644,6 +644,41 @@ func (s *Store) GetDistractors(ctx context.Context, column string, excludeID int
 	return out, rows.Err()
 }
 
+// DistractorChoice is a (text, pinyin) pair for a Chinese-side distractor.
+// Used by the review UI to render pinyin under each hanzi choice.
+type DistractorChoice struct {
+	Text   string
+	Pinyin string
+}
+
+// GetChineseDistractors is GetDistractors specialised for the Chinese "front"
+// column: it joins entries to also surface the entry's pinyin, so the review
+// page can render pinyin under each hanzi option. The current card and the
+// correct answer are excluded case-insensitively, same as GetDistractors.
+func (s *Store) GetChineseDistractors(ctx context.Context, excludeID int64, correct string, n int) ([]DistractorChoice, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT c.front, COALESCE(e.pinyin, '')
+		FROM cards c JOIN entries e ON e.id = c.entry_id
+		WHERE c.id != ?
+		  AND c.front IS NOT NULL AND c.front != ''
+		  AND LOWER(c.front) != LOWER(?)
+		ORDER BY RANDOM() LIMIT ?`,
+		excludeID, correct, n)
+	if err != nil {
+		return nil, fmt.Errorf("get chinese distractors: %w", err)
+	}
+	defer rows.Close()
+	out := make([]DistractorChoice, 0, n)
+	for rows.Next() {
+		var d DistractorChoice
+		if err := rows.Scan(&d.Text, &d.Pinyin); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 // DeleteNote removes a note and (via FK cascade) all its entries, cards, and
 // reviews. Used by the import handler to roll back when smart-parse fails so
 // the user can retry the same paste.
