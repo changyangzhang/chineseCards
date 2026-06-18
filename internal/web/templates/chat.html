@@ -18,6 +18,7 @@
         <span class="chat-busy" aria-hidden="true">
             <span class="spinner"></span> Tutor is thinking…
         </span>
+        <span class="chat-hint muted">Enter to send · Shift+Enter for newline</span>
         <button type="submit" class="btn primary">Send</button>
     </div>
 </form>
@@ -33,14 +34,16 @@
     // Scroll the thread to the bottom on first load so the latest turn is visible.
     (function () {
         window.scrollTo(0, document.body.scrollHeight);
-        // Cmd/Ctrl+Enter in the textarea submits.
+        // Enter sends; Shift+Enter inserts a newline (the standard chat-app
+        // convention). Empty / whitespace-only input is ignored so a stray
+        // Enter doesn't fire a no-op.
         const ta = document.querySelector('.chat-form textarea');
         if (!ta) return;
         ta.addEventListener('keydown', function (e) {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                e.preventDefault();
-                ta.form.requestSubmit();
-            }
+            if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+            e.preventDefault();
+            if (ta.value.trim() === '') return;
+            ta.form.requestSubmit();
         });
     })();
 </script>

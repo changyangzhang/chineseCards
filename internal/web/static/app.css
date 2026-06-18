@@ -418,6 +418,11 @@ table.cards tr:last-child td { border-bottom: none; }
     justify-content: flex-end;
     align-items: center;
     gap: 0.8rem;
+    flex-wrap: wrap;
+}
+.chat-hint { font-size: 0.8rem; }
+@media (max-width: 520px) {
+    .chat-hint { display: none; }
 }
 .chat-busy {
     color: var(--muted);

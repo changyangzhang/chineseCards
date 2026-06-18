@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"google.golang.org/genai"
 )
@@ -69,9 +70,26 @@ func (c *Client) Chat(ctx context.Context, history []ChatMessage) (string, error
 		MaxOutputTokens:   1024,
 	}
 
-	resp, err := c.sdk.Models.GenerateContent(ctx, c.model, contents, cfg)
+	// Retry on transient 503 ("model overloaded") / 429 (rate-limited),
+	// matching the parse-side behaviour. Total worst-case wait: 2+5=7s.
+	var resp *genai.GenerateContentResponse
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		resp, err = c.sdk.Models.GenerateContent(ctx, c.model, contents, cfg)
+		if err == nil {
+			break
+		}
+		if !isTransientGeminiError(err) {
+			return "", fmt.Errorf("gemini chat: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(time.Duration(2+3*attempt) * time.Second):
+		}
+	}
 	if err != nil {
-		return "", fmt.Errorf("gemini chat: %w", err)
+		return "", fmt.Errorf("gemini chat (after retries): %w", err)
 	}
 	out := strings.TrimSpace(resp.Text())
 	if out == "" {
