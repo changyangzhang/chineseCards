@@ -1023,6 +1023,40 @@ func (s *Store) DiagnoseEmptyQueue(ctx context.Context) (*QueueDiagnostic, error
 	return d, nil
 }
 
+// LastNRatings returns the N most recent review ratings (time descending).
+// Used by the motivation picker to detect trailing-correct runs and recovery
+// from a lapse without re-computing it from the full reviews log.
+func (s *Store) LastNRatings(ctx context.Context, n int) ([]int, error) {
+	if n <= 0 {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT rating FROM reviews ORDER BY reviewed_at DESC, id DESC LIMIT ?`, n)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]int, 0, n)
+	for rows.Next() {
+		var r int
+		if err := rows.Scan(&r); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// CountReviewsToday returns the number of reviews recorded since midnight
+// (local time per SQLite's date('now')). Used by the motivation picker to
+// detect milestone hits like "first card of the day" and "every 10th today".
+func (s *Store) CountReviewsToday(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM reviews WHERE reviewed_at >= date('now')`).Scan(&n)
+	return n, err
+}
+
 // ReviewDatesDesc returns distinct review days in descending order, capped at
 // `limit`. Used to compute streak.
 func (s *Store) ReviewDatesDesc(ctx context.Context, limit int) ([]time.Time, error) {

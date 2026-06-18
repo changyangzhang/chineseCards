@@ -16,6 +16,10 @@
     </div>
 </div>
 
+{{if .Motivation}}
+<p class="nudge nudge-{{.Motivation.Tone}}">{{.Motivation.Text}}</p>
+{{end}}
+
 <div class="actions">
     <a class="btn primary" href="/review">Start review</a>
     <a class="btn" href="/import">Import notes</a>

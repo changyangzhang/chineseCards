@@ -40,6 +40,7 @@ type homeData struct {
 	TotalCount int
 	LLMEnabled bool
 	LLMModel   string
+	Motivation *Nudge // optional sweet line under today's stats
 }
 
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
@@ -47,12 +48,15 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	due, _ := s.store.CountDueCards(ctx)
 	new_, _ := s.store.CountNewCards(ctx)
 	total, _ := s.store.CountCards(ctx)
+	// Total reviews-ever for home-nudge phrasing — cheap aggregate, ignore err.
+	_, totalReviews, _ := s.store.ReviewAccuracy(ctx)
 	s.renderer.Render(w, "home", homeData{
 		DueCount:   due,
 		NewCount:   new_,
 		TotalCount: total,
 		LLMEnabled: s.cfg.GeminiAPIKey != "",
 		LLMModel:   s.cfg.GeminiModel,
+		Motivation: pickHomeNudge(ctx, s.store, totalReviews),
 	})
 }
 
@@ -827,6 +831,7 @@ type lastResult struct {
 	IsReverse  bool   // English → Chinese translation
 	Filled     string // for cloze: Front with ____ replaced by Correct
 	HintBelow  string
+	Motivation *Nudge // optional sweet line shown next to the ribbon
 }
 
 type emptyState struct {
@@ -837,6 +842,7 @@ type emptyState struct {
 	DailyTarget   int    // total cap for new + due combined
 	NextDueRel    string // "in 18h" / "in 3d" for the soonest future-due card
 	NextDueFront  string
+	Motivation    *Nudge // warm sign-off shown when the daily target was reached
 }
 
 type quizData struct {
@@ -997,6 +1003,7 @@ func (s *Server) buildEmptyState(ctx context.Context) *emptyState {
 	if d.NextDueAt != nil {
 		es.NextDueRel = humanizeDelta(time.Until(*d.NextDueAt))
 	}
+	es.Motivation = pickEmptyStateNudge(es)
 	return es
 }
 
@@ -1089,6 +1096,7 @@ func (s *Server) handleReviewPost(w http.ResponseWriter, r *http.Request) {
 	if last.IsCloze {
 		last.Filled = strings.Replace(frontShown, "____", correct, 1)
 	}
+	last.Motivation = pickReviewNudge(ctx, s.store, wasCorrect)
 
 	next, err := s.store.NextCardForReview(ctx, s.dailyTarget(ctx), newCardRatio)
 	if err != nil {

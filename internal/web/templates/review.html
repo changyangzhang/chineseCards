@@ -68,6 +68,9 @@
             {{if not .Last.WasCorrect}}<span class="ribbon-pick">you picked: <em>{{.Last.Chosen}}</em></span>{{end}}
         {{end}}
     </div>
+    {{if .Last.Motivation}}
+    <div class="nudge nudge-{{.Last.Motivation.Tone}}">{{.Last.Motivation.Text}}</div>
+    {{end}}
     {{end}}
 
     {{if .Card}}
@@ -152,6 +155,9 @@
         {{else}}
         <h2>All done!</h2>
         <p>No cards waiting.</p>
+        {{end}}
+        {{if .Motivation}}
+        <p class="nudge nudge-{{.Motivation.Tone}}">{{.Motivation.Text}}</p>
         {{end}}
         <a class="btn" href="/">Home</a>
         <a class="btn" href="/import">Import</a>
