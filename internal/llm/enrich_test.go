@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"swedishCards/internal/model"
+	"chineseCards/internal/model"
 )
 
 func TestEnrich_EmptyInputSkipsAPI(t *testing.T) {
@@ -27,11 +27,11 @@ func TestEnrich_DecodesResponse(t *testing.T) {
 	// What we want Enrich() to return after JSON decoding.
 	enrichJSON := `{
 		"entries": [
-			{"source_index": 0, "english": "convenient, practical", "kind_correction": "unchanged", "grammar_note": "adverb form of praktisk"},
-			{"source_index": 1, "english": "ingredients", "kind_correction": "unchanged", "typo_correction": "Ingredienser"}
+			{"source_index": 0, "pinyin": "nǐ hǎo", "english": "hello", "kind_correction": "unchanged", "grammar_note": "the universal greeting; literally 'you good'"},
+			{"source_index": 1, "pinyin": "xièxie", "english": "thank you", "kind_correction": "unchanged", "typo_correction": "谢谢"}
 		],
 		"example_sentences": [
-			{"source_index": 0, "swedish": "Det är praktiskt att ha en plan.", "english": "It is practical to have a plan.", "target_word": "praktiskt"}
+			{"source_index": 0, "chinese": "你好，老师。", "pinyin": "nǐ hǎo, lǎoshī.", "english": "Hello, teacher.", "target_word": "你好"}
 		]
 	}`
 
@@ -63,8 +63,8 @@ func TestEnrich_DecodesResponse(t *testing.T) {
 	}
 
 	res, err := c.Enrich(context.Background(), []model.ParsedEntry{
-		{Kind: model.KindWord, SwedishRaw: "Praktiskt", English: ""},
-		{Kind: model.KindWord, SwedishRaw: "Ingrendienser", English: "ingredients"},
+		{Kind: model.KindWord, ChineseRaw: "你好", English: ""},
+		{Kind: model.KindWord, ChineseRaw: "射射", English: "thank you"},
 	})
 	if err != nil {
 		t.Fatalf("enrich: %v", err)
@@ -73,17 +73,23 @@ func TestEnrich_DecodesResponse(t *testing.T) {
 	if len(res.Entries) != 2 {
 		t.Fatalf("got %d entries, want 2", len(res.Entries))
 	}
-	if res.Entries[0].English != "convenient, practical" {
+	if res.Entries[0].English != "hello" {
 		t.Errorf("entry 0 english = %q", res.Entries[0].English)
 	}
-	if res.Entries[0].GrammarNote == nil || *res.Entries[0].GrammarNote != "adverb form of praktisk" {
+	if res.Entries[0].Pinyin != "nǐ hǎo" {
+		t.Errorf("entry 0 pinyin = %q", res.Entries[0].Pinyin)
+	}
+	if res.Entries[0].GrammarNote == nil || *res.Entries[0].GrammarNote != "the universal greeting; literally 'you good'" {
 		t.Errorf("entry 0 grammar_note = %v", res.Entries[0].GrammarNote)
 	}
-	if res.Entries[1].TypoCorrection == nil || *res.Entries[1].TypoCorrection != "Ingredienser" {
+	if res.Entries[1].TypoCorrection == nil || *res.Entries[1].TypoCorrection != "谢谢" {
 		t.Errorf("entry 1 typo_correction = %v", res.Entries[1].TypoCorrection)
 	}
-	if len(res.ExampleSentences) != 1 || res.ExampleSentences[0].TargetWord != "praktiskt" {
+	if len(res.ExampleSentences) != 1 || res.ExampleSentences[0].TargetWord != "你好" {
 		t.Errorf("example_sentences = %+v", res.ExampleSentences)
+	}
+	if res.ExampleSentences[0].Pinyin != "nǐ hǎo, lǎoshī." {
+		t.Errorf("example pinyin = %q", res.ExampleSentences[0].Pinyin)
 	}
 }
 

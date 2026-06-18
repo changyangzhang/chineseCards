@@ -4,7 +4,7 @@ import (
 	"math/rand/v2"
 	"strings"
 
-	"swedishCards/internal/parser"
+	"chineseCards/internal/parser"
 )
 
 // rotateBlank picks a random non-stopword token from the sentence and returns
@@ -15,7 +15,7 @@ func rotateBlank(sentence string) (front, answer string) {
 	candidates := make([]int, 0, len(words))
 	for i, w := range words {
 		clean := stripTrailingPuncts(strings.ToLower(w))
-		if clean == "" || parser.SwedishStopwords[clean] {
+		if clean == "" || parser.ChineseStopwords[clean] {
 			continue
 		}
 		candidates = append(candidates, i)
@@ -43,7 +43,7 @@ func buildChoices(correct string, distractors []string) []string {
 }
 
 func stripTrailingPuncts(s string) string {
-	return strings.TrimRight(s, ".,!?;:\"")
+	return strings.TrimRight(s, ".,!?;:\"。，！？；：")
 }
 
 func clozeBlankFor(token string) string {

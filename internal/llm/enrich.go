@@ -9,12 +9,13 @@ import (
 
 	"google.golang.org/genai"
 
-	"swedishCards/internal/model"
+	"chineseCards/internal/model"
 )
 
 // EnrichedEntry is one row in the Gemini response's "entries" array.
 type EnrichedEntry struct {
 	SourceIndex        int     `json:"source_index"`
+	Pinyin             string  `json:"pinyin"`
 	English            string  `json:"english"`
 	KindCorrection     string  `json:"kind_correction"`
 	SuggestedClozeWord *string `json:"suggested_cloze_word"`
@@ -25,7 +26,8 @@ type EnrichedEntry struct {
 // ExampleSentence is one row in the "example_sentences" array.
 type ExampleSentence struct {
 	SourceIndex int    `json:"source_index"`
-	Swedish     string `json:"swedish"`
+	Chinese     string `json:"chinese"`
+	Pinyin      string `json:"pinyin"`
 	English     string `json:"english"`
 	TargetWord  string `json:"target_word"`
 }
@@ -40,7 +42,7 @@ type Result struct {
 type promptEntry struct {
 	Index   int    `json:"index"`
 	Kind    string `json:"kind"`
-	Swedish string `json:"swedish"`
+	Chinese string `json:"chinese"`
 	English string `json:"english,omitempty"`
 }
 
@@ -56,7 +58,7 @@ func (c *Client) Enrich(ctx context.Context, entries []model.ParsedEntry) (*Resu
 		payload[i] = promptEntry{
 			Index:   i,
 			Kind:    string(e.Kind),
-			Swedish: e.SwedishRaw,
+			Chinese: e.ChineseRaw,
 			English: e.English,
 		}
 	}
@@ -104,7 +106,8 @@ func truncate(s string, n int) string {
 // ParsedAndEnrichedEntry is one row in ParseResult.Entries — Gemini has both
 // parsed it from raw notes AND filled in translation/grammar/typo data.
 type ParsedAndEnrichedEntry struct {
-	Swedish            string  `json:"swedish"`
+	Chinese            string  `json:"chinese"`
+	Pinyin             string  `json:"pinyin"`
 	Kind               string  `json:"kind"`
 	English            string  `json:"english"`
 	SuggestedClozeWord *string `json:"suggested_cloze_word"`
@@ -112,12 +115,13 @@ type ParsedAndEnrichedEntry struct {
 	TypoCorrection     *string `json:"typo_correction"`
 }
 
-// ParseExampleSentence references its parent by Swedish text rather than an
+// ParseExampleSentence references its parent by Chinese text rather than an
 // array index, since the input to ParseAndEnrich is raw text not an indexed
 // array.
 type ParseExampleSentence struct {
-	ParentSwedish string `json:"parent_swedish"`
-	Swedish       string `json:"swedish"`
+	ParentChinese string `json:"parent_chinese"`
+	Chinese       string `json:"chinese"`
+	Pinyin        string `json:"pinyin"`
 	English       string `json:"english"`
 	TargetWord    string `json:"target_word"`
 }
@@ -128,9 +132,9 @@ type ParseResult struct {
 	ExampleSentences []ParseExampleSentence   `json:"example_sentences"`
 }
 
-// ParseAndEnrich asks Gemini to BOTH parse free-form Swedish lesson notes AND
+// ParseAndEnrich asks Gemini to BOTH parse free-form Chinese lesson notes AND
 // enrich them in a single call. Handles complex inputs that the heuristic
-// parser can't: section headers, tables, parenthetical context, bare Swedish
+// parser can't: section headers, tables, parenthetical context, bare Chinese
 // phrases without "=" separators. Retries on transient errors (503/429).
 func (c *Client) ParseAndEnrich(ctx context.Context, rawText string) (*ParseResult, error) {
 	if strings.TrimSpace(rawText) == "" {
@@ -154,7 +158,7 @@ func (c *Client) ParseAndEnrichFile(ctx context.Context, data []byte, mimeType s
 	}
 	parts := []*genai.Part{
 		{InlineData: &genai.Blob{MIMEType: mimeType, Data: data}},
-		{Text: "These are the learner's Swedish lesson notes (image or PDF). Read the content carefully and extract Swedish vocabulary items per the system instructions."},
+		{Text: "These are the learner's Chinese lesson notes (image or PDF). Read the content carefully and extract Chinese vocabulary items per the system instructions."},
 	}
 	return c.parseContent(ctx, []*genai.Content{{
 		Role:  genai.RoleUser,

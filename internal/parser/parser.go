@@ -4,8 +4,10 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
-	"swedishCards/internal/model"
+	"chineseCards/internal/model"
 )
 
 type Result struct {
@@ -14,7 +16,7 @@ type Result struct {
 }
 
 // ParseNotes turns a raw paste of lesson notes into a Result.
-// The function is pure and runs offline; Claude enrichment happens later.
+// The function is pure and runs offline; LLM enrichment happens later.
 func ParseNotes(raw string) Result {
 	var out Result
 
@@ -42,7 +44,7 @@ func ParseNotes(raw string) Result {
 }
 
 func parseEntryLine(line string) (model.ParsedEntry, bool) {
-	// Equals-separated line: swedish = english(,english2,...)
+	// Equals-separated line: chinese = english(,english2,...)
 	if idx := strings.Index(line, "="); idx >= 0 {
 		lhs := strings.TrimSpace(line[:idx])
 		rhs := strings.TrimSpace(line[idx+1:])
@@ -50,27 +52,27 @@ func parseEntryLine(line string) (model.ParsedEntry, bool) {
 			return model.ParsedEntry{}, false
 		}
 
-		swedishRaw := lhs
+		chineseRaw := lhs
 		english := rhs
 
 		kind := classifyKind(lhs)
-		swedish := canonicalSwedish(lhs, kind)
+		chinese := CanonicalChinese(lhs)
 
 		return model.ParsedEntry{
 			Kind:       kind,
-			Swedish:    swedish,
-			SwedishRaw: swedishRaw,
+			Chinese:    chinese,
+			ChineseRaw: chineseRaw,
 			English:    english,
 		}, true
 	}
 
 	// Bare line, treat as untranslated sentence (or single untranslated word).
-	swedishRaw := line
-	swedish := canonicalSwedish(line, model.KindSentenceUntranslated)
+	chineseRaw := line
+	chinese := CanonicalChinese(line)
 	return model.ParsedEntry{
 		Kind:       model.KindSentenceUntranslated,
-		Swedish:    swedish,
-		SwedishRaw: swedishRaw,
+		Chinese:    chinese,
+		ChineseRaw: chineseRaw,
 		English:    "",
 	}, true
 }
@@ -78,39 +80,67 @@ func parseEntryLine(line string) (model.ParsedEntry, bool) {
 func classifyKind(lhs string) model.Kind {
 	lower := strings.ToLower(lhs)
 
-	// Verb: starts with "att "
-	if strings.HasPrefix(lower, "att ") {
-		return model.KindVerb
+	// If the LHS is whitespace-tokenised (mixed pinyin/latin, or hanzi the user
+	// chose to separate), inspect tokens for pronoun/verb markers.
+	tokens := strings.Fields(lower)
+	if len(tokens) > 1 {
+		for _, t := range tokens {
+			clean := strings.Trim(t, ".,!?;:。，！？；：")
+			if chinesePronouns[clean] || chineseVerbs[clean] {
+				return model.KindSentence
+			}
+		}
+		return model.KindPhrase
 	}
 
-	tokens := strings.Fields(lower)
-	if len(tokens) <= 1 {
+	// Single-token / unsegmented hanzi: use character count and a hanzi pronoun
+	// scan to classify.
+	hanziLen := utf8.RuneCountInString(lhs)
+	if hanziLen <= 1 {
 		return model.KindWord
 	}
-
-	// Multi-token: sentence if it contains a pronoun or auxiliary verb,
-	// otherwise it's a phrase.
-	for _, t := range tokens {
-		clean := strings.Trim(t, ".,!?;:")
-		if swedishPronouns[clean] || swedishVerbs[clean] {
+	for token := range chinesePronouns {
+		if strings.Contains(lhs, token) {
 			return model.KindSentence
 		}
+	}
+	for token := range chineseVerbs {
+		if strings.Contains(lhs, token) {
+			return model.KindSentence
+		}
+	}
+	if hanziLen <= 3 {
+		return model.KindWord
 	}
 	return model.KindPhrase
 }
 
-// canonicalSwedish returns the form used for hashing/dedup.
-// - lowercased
-// - trailing punctuation .!? trimmed
-// - "att " prefix stripped for verbs
-func canonicalSwedish(s string, kind model.Kind) string {
-	out := strings.ToLower(strings.TrimSpace(s))
-	out = strings.TrimRight(out, ".!?")
-	out = strings.TrimSpace(out)
-	if kind == model.KindVerb && strings.HasPrefix(out, "att ") {
-		out = strings.TrimSpace(out[4:])
+// CanonicalChinese returns the form used for hashing/dedup.
+//   - leading/trailing whitespace trimmed
+//   - trailing ASCII or Chinese sentence punctuation trimmed
+//   - any Latin letters lowercased (for romanised entries)
+//
+// We deliberately don't touch hanzi themselves — there's no case, and
+// normalising simplified vs traditional would silently collapse distinct
+// entries.
+func CanonicalChinese(s string) string {
+	out := strings.TrimSpace(s)
+	out = strings.TrimRightFunc(out, func(r rune) bool {
+		switch r {
+		case '.', '!', '?', '。', '！', '？':
+			return true
+		}
+		return unicode.IsSpace(r)
+	})
+	var b strings.Builder
+	b.Grow(len(out))
+	for _, r := range out {
+		if r >= 'A' && r <= 'Z' {
+			r += 'a' - 'A'
+		}
+		b.WriteRune(r)
 	}
-	return out
+	return b.String()
 }
 
 // Date parsing.
@@ -119,10 +149,6 @@ func canonicalSwedish(s string, kind model.Kind) string {
 //  1. DMY short ("2/1/06") — matches "1/6/26" -> 1 June 2026
 //  2. ISO ("2006-01-02")
 //  3. Long month-name format (e.g. "January 6, 2026")
-//
-// We deliberately pick DMY over MDY for the short slashed form because
-// Swedish-context notes use DMY.
-
 var monthNameRe = regexp.MustCompile(`^(?i)(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:,\s*(\d{2,4}))?$`)
 
 func tryParseDate(line string) (time.Time, bool) {

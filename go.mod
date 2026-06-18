@@ -1,4 +1,4 @@
-module swedishCards
+module chineseCards
 
 go 1.26
 

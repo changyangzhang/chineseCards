@@ -16,15 +16,16 @@ const (
 type CardType string
 
 const (
-	CardTypeFlashSvEn CardType = "flash_sv_en"
-	CardTypeFlashEnSv CardType = "flash_en_sv"
+	CardTypeFlashZhEn CardType = "flash_zh_en"
+	CardTypeFlashEnZh CardType = "flash_en_zh"
 	CardTypeCloze     CardType = "cloze"
 )
 
 type ParsedEntry struct {
 	Kind       Kind
-	Swedish    string // canonical (lowercased, "att " stripped)
-	SwedishRaw string // as typed
+	Chinese    string // canonical hanzi (trimmed, lowercased for any latin letters)
+	ChineseRaw string // hanzi as typed
+	Pinyin     string // toned pinyin (e.g. "nǐ hǎo"); empty until enriched
 	English    string // "" if untranslated
 }
 
@@ -33,8 +34,9 @@ type Entry struct {
 	NoteID             int64
 	SourceEntryID      *int64
 	Kind               Kind
-	Swedish            string
-	SwedishRaw         string
+	Chinese            string
+	ChineseRaw         string
+	Pinyin             string
 	English            *string
 	SuggestedClozeWord *string
 	GrammarNote        *string

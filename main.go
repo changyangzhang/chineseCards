@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"os"
 
-	"swedishCards/cmd/server"
+	"chineseCards/cmd/server"
 )
 
 func main() {

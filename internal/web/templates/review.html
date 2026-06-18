@@ -1,4 +1,4 @@
-{{define "title"}}Review — Swedish Cards{{end}}
+{{define "title"}}Review — Chinese Cards{{end}}
 {{define "content"}}
 <h1>Review</h1>
 
@@ -21,15 +21,15 @@
         }
     });
 
-    // ---- Swedish text-to-speech (Web Speech API; free, browser-native) ----
-    function speakSwedish(text) {
+    // ---- Mandarin text-to-speech (Web Speech API; free, browser-native) ----
+    function speakChinese(text) {
         if (!('speechSynthesis' in window) || !text) return;
         // Cancel anything in flight so back-to-back clicks don't queue up.
         speechSynthesis.cancel();
         // Cloze placeholders should be heard as a pause, not "underscore".
         const cleaned = text.replace(/_+/g, ', ');
         const utter = new SpeechSynthesisUtterance(cleaned);
-        utter.lang = 'sv-SE';
+        utter.lang = 'zh-CN';
         utter.rate = 0.9;
         speechSynthesis.speak(utter);
     }
@@ -41,7 +41,7 @@
         if (!trigger) return;
         e.preventDefault();
         e.stopPropagation();
-        speakSwedish(trigger.dataset.text);
+        speakChinese(trigger.dataset.text);
     }, true);
 </script>
 {{end}}
@@ -72,8 +72,8 @@
 
     {{if .Card}}
     <div class="mode-badge mode-{{.Card.Mode}}">
-        {{if eq (printf "%s" .Card.Mode) "mc_translate"}}🇸🇪 → 🇬🇧 translate
-        {{else if eq (printf "%s" .Card.Mode) "mc_translate_rev"}}🇬🇧 → 🇸🇪 translate
+        {{if eq (printf "%s" .Card.Mode) "mc_translate"}}🇨🇳 → 🇬🇧 translate
+        {{else if eq (printf "%s" .Card.Mode) "mc_translate_rev"}}🇬🇧 → 🇨🇳 translate
         {{else if eq (printf "%s" .Card.Mode) "mc_cloze"}}fill the blank
         {{end}}
     </div>
@@ -81,8 +81,8 @@
     <div class="card{{if .Card.IsCloze}} card-cloze{{end}}">
         <div class="card-front{{if .Card.IsCloze}} cloze-front{{end}}">
             <span>{{.Card.Front}}</span>
-            {{if .Card.IsFrontSwedish}}
-            <button type="button" class="speak-btn" data-text="{{.Card.Front}}" aria-label="Hör på svenska" title="Speak Swedish">🔊</button>
+            {{if .Card.IsFrontChinese}}
+            <button type="button" class="speak-btn" data-text="{{.Card.Front}}" aria-label="Speak Mandarin" title="Speak Mandarin">🔊</button>
             {{end}}
         </div>
         {{if .Card.HintBelow}}<div class="cloze-hint">{{.Card.HintBelow}}</div>{{end}}
@@ -98,7 +98,7 @@
             {{range .Card.Choices}}
             <button type="submit" name="choice" value="{{.}}" class="choice-btn">
                 <span class="choice-text">{{.}}</span>
-                {{if $.Card.IsChoicesSwedish}}
+                {{if $.Card.IsChoicesChinese}}
                 <span class="speak-icon" data-text="{{.}}" aria-label="Speak">🔊</span>
                 {{end}}
             </button>

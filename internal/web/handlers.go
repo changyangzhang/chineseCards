@@ -14,13 +14,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"swedishCards/internal/cards"
-	"swedishCards/internal/config"
-	"swedishCards/internal/llm"
-	"swedishCards/internal/model"
-	"swedishCards/internal/parser"
-	"swedishCards/internal/srs"
-	"swedishCards/internal/store"
+	"chineseCards/internal/cards"
+	"chineseCards/internal/config"
+	"chineseCards/internal/llm"
+	"chineseCards/internal/model"
+	"chineseCards/internal/parser"
+	"chineseCards/internal/srs"
+	"chineseCards/internal/store"
 )
 
 type Server struct {
@@ -236,7 +236,7 @@ func (s *Server) handleImportPost(w http.ResponseWriter, r *http.Request) {
 	for _, e := range entriesToInsert {
 		entRes, err := s.store.InsertEntry(ctx, noteRes.NoteID, e)
 		if err != nil {
-			slog.Error("insert entry", "err", err, "swedish", e.Swedish)
+			slog.Error("insert entry", "err", err, "chinese", e.Chinese)
 			continue
 		}
 		if entRes.Inserted {
@@ -272,7 +272,7 @@ func (s *Server) handleImportPost(w http.ResponseWriter, r *http.Request) {
 		if len(existing) > 0 {
 			continue
 		}
-		for _, c := range cards.Generate(st.parsed.Kind, st.parsed.SwedishRaw, st.finalEng, st.clozeHint) {
+		for _, c := range cards.Generate(st.parsed.Kind, st.parsed.ChineseRaw, st.finalEng, st.clozeHint) {
 			cardRes, err := s.store.InsertCard(ctx, st.entryID, c.CardType, c.Front, c.Back, c.ClozeAnswer)
 			if err != nil {
 				slog.Error("insert card", "err", err)
@@ -351,29 +351,24 @@ func llmEntriesAsParsed(entries []llm.ParsedAndEnrichedEntry) []model.ParsedEntr
 	for _, e := range entries {
 		out = append(out, model.ParsedEntry{
 			Kind:       model.Kind(e.Kind),
-			Swedish:    canonicalSwedish(e.Swedish, model.Kind(e.Kind)),
-			SwedishRaw: e.Swedish,
+			Chinese:    canonicalChinese(e.Chinese),
+			ChineseRaw: e.Chinese,
+			Pinyin:     e.Pinyin,
 			English:    e.English,
 		})
 	}
 	return out
 }
 
-// canonicalSwedish mirrors the parser's canonicalization (lowercase, trim
-// trailing punctuation, strip "att " prefix for verbs) so smart-parsed entries
-// hash the same way heuristically-parsed ones do.
-func canonicalSwedish(s string, kind model.Kind) string {
-	out := strings.ToLower(strings.TrimSpace(s))
-	out = strings.TrimRight(out, ".!?")
-	out = strings.TrimSpace(out)
-	if kind == model.KindVerb && strings.HasPrefix(out, "att ") {
-		out = strings.TrimSpace(out[4:])
-	}
-	return out
+// canonicalChinese mirrors the parser's canonicalization (trim whitespace,
+// trim trailing sentence punctuation, lowercase any ASCII letters) so
+// smart-parsed entries hash the same way heuristically-parsed ones do.
+func canonicalChinese(s string) string {
+	return parser.CanonicalChinese(s)
 }
 
 // applySmartEnrichment writes Gemini-supplied enrichment fields back to the
-// just-inserted entries and creates example_sentence rows linked by Swedish
+// just-inserted entries and creates example_sentence rows linked by Chinese
 // text. Returns entryStates for the new example sentences so cards get
 // generated for them in the caller's loop.
 func (s *Server) applySmartEnrichment(
@@ -385,21 +380,22 @@ func (s *Server) applySmartEnrichment(
 ) []entryState {
 	now := time.Now().UTC()
 
-	// Build a Swedish-canonical → entryState index for cross-referencing
+	// Build a Chinese-canonical → entryState index for cross-referencing
 	// example sentences and the LLM's per-entry enrichment data.
 	byCanonical := make(map[string]*entryState, len(states))
 	for i := range states {
-		byCanonical[strings.ToLower(strings.TrimSpace(states[i].parsed.Swedish))] = &states[i]
+		byCanonical[strings.ToLower(strings.TrimSpace(states[i].parsed.Chinese))] = &states[i]
 	}
 
 	for _, en := range res.Entries {
-		key := strings.ToLower(strings.TrimSpace(canonicalSwedish(en.Swedish, model.Kind(en.Kind))))
+		key := strings.ToLower(strings.TrimSpace(canonicalChinese(en.Chinese)))
 		st, ok := byCanonical[key]
 		if !ok {
 			continue // Gemini emitted an entry we didn't insert (rare)
 		}
 		if err := s.store.UpdateEntryEnrichment(ctx, store.EnrichEntryUpdate{
 			EntryID:            st.entryID,
+			Pinyin:             en.Pinyin,
 			English:            en.English,
 			SuggestedClozeWord: en.SuggestedClozeWord,
 			GrammarNote:        en.GrammarNote,
@@ -420,13 +416,13 @@ func (s *Server) applySmartEnrichment(
 
 	out := make([]entryState, 0, len(res.ExampleSentences))
 	for _, ex := range res.ExampleSentences {
-		parentKey := strings.ToLower(strings.TrimSpace(ex.ParentSwedish))
+		parentKey := strings.ToLower(strings.TrimSpace(ex.ParentChinese))
 		parent, ok := byCanonical[parentKey]
 		if !ok {
 			continue
 		}
 		exID, inserted, err := s.store.InsertExampleSentence(
-			ctx, noteID, parent.entryID, ex.Swedish, ex.English, ex.TargetWord, now,
+			ctx, noteID, parent.entryID, ex.Chinese, ex.Pinyin, ex.English, ex.TargetWord, now,
 		)
 		if err != nil {
 			slog.Warn("insert example sentence", "err", err)
@@ -439,7 +435,8 @@ func (s *Server) applySmartEnrichment(
 		out = append(out, entryState{
 			parsed: model.ParsedEntry{
 				Kind:       model.KindExampleSentence,
-				SwedishRaw: ex.Swedish,
+				ChineseRaw: ex.Chinese,
+				Pinyin:     ex.Pinyin,
 				English:    ex.English,
 			},
 			entryID:   exID,
@@ -487,6 +484,7 @@ func (s *Server) applyEnrichment(
 		st := &states[en.SourceIndex]
 		if err := s.store.UpdateEntryEnrichment(ctx, store.EnrichEntryUpdate{
 			EntryID:            st.entryID,
+			Pinyin:             en.Pinyin,
 			English:            en.English,
 			SuggestedClozeWord: en.SuggestedClozeWord,
 			GrammarNote:        en.GrammarNote,
@@ -514,7 +512,7 @@ func (s *Server) applyEnrichment(
 		}
 		sourceID := states[ex.SourceIndex].entryID
 		exID, inserted, err := s.store.InsertExampleSentence(
-			ctx, noteID, sourceID, ex.Swedish, ex.English, ex.TargetWord, now,
+			ctx, noteID, sourceID, ex.Chinese, ex.Pinyin, ex.English, ex.TargetWord, now,
 		)
 		if err != nil {
 			slog.Warn("insert example sentence", "err", err)
@@ -527,7 +525,8 @@ func (s *Server) applyEnrichment(
 		out = append(out, entryState{
 			parsed: model.ParsedEntry{
 				Kind:       model.KindExampleSentence,
-				SwedishRaw: ex.Swedish,
+				ChineseRaw: ex.Chinese,
+				Pinyin:     ex.Pinyin,
 				English:    ex.English,
 			},
 			entryID:   exID,
@@ -569,8 +568,9 @@ func (s *Server) handleAdminEnrichPending(w http.ResponseWriter, r *http.Request
 			states[i] = entryState{
 				parsed: model.ParsedEntry{
 					Kind:       e.Kind,
-					Swedish:    e.Swedish,
-					SwedishRaw: e.SwedishRaw,
+					Chinese:    e.Chinese,
+					ChineseRaw: e.ChineseRaw,
+					Pinyin:     e.Pinyin,
 					English:    e.English,
 				},
 				entryID:  e.ID,
@@ -589,7 +589,7 @@ func (s *Server) handleAdminEnrichPending(w http.ResponseWriter, r *http.Request
 		// Regenerate cards (idempotent) for originals + new examples.
 		all := append(states, ex...)
 		for _, st := range all {
-			for _, c := range cards.Generate(st.parsed.Kind, st.parsed.SwedishRaw, st.finalEng, st.clozeHint) {
+			for _, c := range cards.Generate(st.parsed.Kind, st.parsed.ChineseRaw, st.finalEng, st.clozeHint) {
 				_, _ = s.store.InsertCard(ctx, st.entryID, c.CardType, c.Front, c.Back, c.ClozeAnswer)
 			}
 		}
@@ -763,13 +763,13 @@ func (s *Server) handleTypoAccept(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad id", http.StatusBadRequest)
 		return
 	}
-	kind, swedishRaw, english, clozeHint, err := s.store.AcceptTypoCorrection(ctx, id)
+	kind, chineseRaw, english, clozeHint, err := s.store.AcceptTypoCorrection(ctx, id)
 	if err != nil {
 		slog.Error("accept typo", "err", err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	for _, c := range cards.Generate(kind, swedishRaw, english, clozeHint) {
+	for _, c := range cards.Generate(kind, chineseRaw, english, clozeHint) {
 		if _, err := s.store.InsertCard(ctx, id, c.CardType, c.Front, c.Back, c.ClozeAnswer); err != nil {
 			slog.Warn("regen card after typo accept", "err", err)
 		}
@@ -797,9 +797,9 @@ func (s *Server) handleTypoDismiss(w http.ResponseWriter, r *http.Request) {
 type quizMode string
 
 const (
-	ModeMCTranslate    quizMode = "mc_translate"     // Swedish prompt → English answer
-	ModeMCTranslateRev quizMode = "mc_translate_rev" // English prompt → Swedish answer
-	ModeMCCloze        quizMode = "mc_cloze"         // sentence with blank → Swedish word
+	ModeMCTranslate    quizMode = "mc_translate"     // Chinese prompt → English answer
+	ModeMCTranslateRev quizMode = "mc_translate_rev" // English prompt → Chinese answer
+	ModeMCCloze        quizMode = "mc_cloze"         // sentence with blank → Chinese word
 )
 
 // quizCard is the per-render state of a review card.
@@ -812,8 +812,8 @@ type quizCard struct {
 	HintBelow        string   // optional sub-hint (e.g. English for cloze)
 	IsCloze          bool     // affects styling (monospace, gold border)
 	IsTranslate      bool
-	IsFrontSwedish   bool // speaker button on front speaks Swedish
-	IsChoicesSwedish bool // speaker buttons next to choices speak Swedish
+	IsFrontChinese   bool // speaker button on front speaks Chinese
+	IsChoicesChinese bool // speaker buttons next to choices speak Chinese
 }
 
 // lastResult drives the green/red ribbon shown above the new card after a pick.
@@ -824,7 +824,7 @@ type lastResult struct {
 	Chosen     string
 	WasCorrect bool
 	IsCloze    bool
-	IsReverse  bool   // English → Swedish translation
+	IsReverse  bool   // English → Chinese translation
 	Filled     string // for cloze: Front with ____ replaced by Correct
 	HintBelow  string
 }
@@ -870,7 +870,7 @@ func (s *Server) prepareQuizCard(ctx context.Context, card *store.ReviewCard) (*
 		examples, _ := s.store.ListExampleSentencesForEntry(ctx, entry.ID)
 		if len(examples) > 0 {
 			ex := examples[rand.IntN(len(examples))]
-			clozeSentence = ex.Swedish
+			clozeSentence = ex.Chinese
 			clozeEnglish = ex.English
 		}
 	}
@@ -901,22 +901,22 @@ func (s *Server) prepareQuizCard(ctx context.Context, card *store.ReviewCard) (*
 	var distractorColumn string
 	switch mode {
 	case ModeMCTranslate:
-		q.Front = card.Front  // Swedish
+		q.Front = card.Front  // Chinese
 		q.Correct = card.Back // English
 		q.IsTranslate = true
-		q.IsFrontSwedish = true
+		q.IsFrontChinese = true
 		distractorColumn = "back"
 	case ModeMCTranslateRev:
 		q.Front = card.Back    // English shown
-		q.Correct = card.Front // Swedish expected
+		q.Correct = card.Front // Chinese expected
 		q.IsTranslate = true
-		q.IsChoicesSwedish = true
+		q.IsChoicesChinese = true
 		distractorColumn = "front"
 	case ModeMCCloze:
 		q.Front, q.Correct = rotateBlank(clozeSentence)
 		q.IsCloze = true
-		q.IsFrontSwedish = true
-		q.IsChoicesSwedish = true
+		q.IsFrontChinese = true
+		q.IsChoicesChinese = true
 		if clozeEnglish != "" {
 			q.HintBelow = clozeEnglish
 		}

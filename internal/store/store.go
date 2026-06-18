@@ -13,7 +13,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"swedishCards/internal/model"
+	"chineseCards/internal/model"
 )
 
 //go:embed schema.sql
@@ -56,12 +56,12 @@ func normalizedNoteHash(raw string) string {
 	return hashStr(strings.ToLower(strings.TrimSpace(raw)))
 }
 
-func entryHash(kind model.Kind, swedish, english string) string {
-	return hashStr(string(kind), swedish, english)
+func entryHash(kind model.Kind, chinese, english string) string {
+	return hashStr(string(kind), chinese, english)
 }
 
-func exampleEntryHash(kind model.Kind, swedish string, sourceEntryID int64) string {
-	return hashStr(string(kind), swedish, fmt.Sprintf("%d", sourceEntryID))
+func exampleEntryHash(kind model.Kind, chinese string, sourceEntryID int64) string {
+	return hashStr(string(kind), chinese, fmt.Sprintf("%d", sourceEntryID))
 }
 
 func cardHash(cardType model.CardType, front, back string) string {
@@ -105,18 +105,22 @@ type InsertEntryResult struct {
 }
 
 func (s *Store) InsertEntry(ctx context.Context, noteID int64, e model.ParsedEntry) (InsertEntryResult, error) {
-	h := entryHash(e.Kind, e.Swedish, e.English)
+	h := entryHash(e.Kind, e.Chinese, e.English)
 	var englishCol any
 	if e.English == "" {
 		englishCol = nil
 	} else {
 		englishCol = e.English
 	}
+	var pinyinCol any
+	if e.Pinyin != "" {
+		pinyinCol = e.Pinyin
+	}
 
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO entries (note_id, kind, swedish, swedish_raw, english, hash)
-		 VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(hash) DO NOTHING`,
-		noteID, string(e.Kind), e.Swedish, e.SwedishRaw, englishCol, h)
+		`INSERT INTO entries (note_id, kind, chinese, chinese_raw, pinyin, english, hash)
+		 VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(hash) DO NOTHING`,
+		noteID, string(e.Kind), e.Chinese, e.ChineseRaw, pinyinCol, englishCol, h)
 	if err != nil {
 		return InsertEntryResult{}, fmt.Errorf("insert entry: %w", err)
 	}
@@ -163,7 +167,7 @@ type CardListRow struct {
 	CardType   model.CardType
 	Front      string
 	Back       string
-	Swedish    string
+	Chinese    string
 	Kind       model.Kind
 	DueAt      time.Time
 	LastReview *time.Time
@@ -172,7 +176,7 @@ type CardListRow struct {
 
 func (s *Store) ListCards(ctx context.Context, limit, offset int) ([]CardListRow, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT c.id, c.card_type, c.front, c.back, e.swedish_raw, e.kind, c.due_at, c.last_reviewed, c.repetitions
+		SELECT c.id, c.card_type, c.front, c.back, e.chinese_raw, e.kind, c.due_at, c.last_reviewed, c.repetitions
 		FROM cards c JOIN entries e ON e.id = c.entry_id
 		ORDER BY c.id DESC LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
@@ -186,7 +190,7 @@ func (s *Store) ListCards(ctx context.Context, limit, offset int) ([]CardListRow
 		var dueStr string
 		var lastStr sql.NullString
 		var kindStr, typeStr string
-		if err := rows.Scan(&r.ID, &typeStr, &r.Front, &r.Back, &r.Swedish, &kindStr, &dueStr, &lastStr, &r.Reps); err != nil {
+		if err := rows.Scan(&r.ID, &typeStr, &r.Front, &r.Back, &r.Chinese, &kindStr, &dueStr, &lastStr, &r.Reps); err != nil {
 			return nil, err
 		}
 		r.CardType = model.CardType(typeStr)
@@ -228,22 +232,26 @@ type EntryRow struct {
 	ID                 int64
 	NoteID             int64
 	Kind               model.Kind
-	Swedish            string
-	SwedishRaw         string
+	Chinese            string
+	ChineseRaw         string
+	Pinyin             string  // empty when NULL
 	English            string  // empty when NULL
 	SuggestedClozeWord *string // nil when NULL
 }
 
-const entryRowCols = `id, note_id, kind, swedish, swedish_raw, english, suggested_cloze_word`
+const entryRowCols = `id, note_id, kind, chinese, chinese_raw, pinyin, english, suggested_cloze_word`
 
 func scanEntryRow(rows *sql.Rows) (EntryRow, error) {
 	var e EntryRow
 	var kindStr string
-	var english, cloze sql.NullString
-	if err := rows.Scan(&e.ID, &e.NoteID, &kindStr, &e.Swedish, &e.SwedishRaw, &english, &cloze); err != nil {
+	var pinyin, english, cloze sql.NullString
+	if err := rows.Scan(&e.ID, &e.NoteID, &kindStr, &e.Chinese, &e.ChineseRaw, &pinyin, &english, &cloze); err != nil {
 		return EntryRow{}, err
 	}
 	e.Kind = model.Kind(kindStr)
+	if pinyin.Valid {
+		e.Pinyin = pinyin.String
+	}
 	if english.Valid {
 		e.English = english.String
 	}
@@ -297,6 +305,7 @@ func (s *Store) ListEntriesByNote(ctx context.Context, noteID int64) ([]EntryRow
 // EnrichEntryUpdate is the payload of an entry-level enrichment write.
 type EnrichEntryUpdate struct {
 	EntryID            int64
+	Pinyin             string // empty => keep existing
 	English            string // empty => keep existing
 	SuggestedClozeWord *string
 	GrammarNote        *string
@@ -305,21 +314,27 @@ type EnrichEntryUpdate struct {
 }
 
 // UpdateEntryEnrichment writes Gemini-supplied fields onto an existing entry.
-// English is overwritten only when non-empty (so we don't clobber user-provided
-// translations with an empty string).
+// Pinyin and English are overwritten only when non-empty (so we don't clobber
+// user-provided values with an empty string).
 func (s *Store) UpdateEntryEnrichment(ctx context.Context, u EnrichEntryUpdate) error {
+	var pinyinArg any
+	if u.Pinyin != "" {
+		pinyinArg = u.Pinyin
+	}
 	var englishArg any
 	if u.English != "" {
 		englishArg = u.English
 	}
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE entries
-		   SET english = COALESCE(?, english),
+		   SET pinyin = COALESCE(?, pinyin),
+		       english = COALESCE(?, english),
 		       suggested_cloze_word = ?,
 		       grammar_note = ?,
 		       typo_correction = ?,
 		       enriched_at = ?
 		 WHERE id = ?`,
+		pinyinArg,
 		englishArg,
 		nullStr(u.SuggestedClozeWord),
 		nullStr(u.GrammarNote),
@@ -338,16 +353,20 @@ func (s *Store) UpdateEntryEnrichment(ctx context.Context, u EnrichEntryUpdate) 
 func (s *Store) InsertExampleSentence(
 	ctx context.Context,
 	noteID, sourceEntryID int64,
-	swedish, english, targetWord string,
+	chinese, pinyin, english, targetWord string,
 	enrichedAt time.Time,
 ) (int64, bool, error) {
-	swedishCanon := strings.TrimRight(strings.ToLower(strings.TrimSpace(swedish)), ".!?")
-	h := exampleEntryHash(model.KindExampleSentence, swedishCanon, sourceEntryID)
+	chineseCanon := strings.TrimRight(strings.TrimSpace(chinese), ".!?。！？")
+	h := exampleEntryHash(model.KindExampleSentence, chineseCanon, sourceEntryID)
+	var pinyinCol any
+	if pinyin != "" {
+		pinyinCol = pinyin
+	}
 	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO entries (note_id, source_entry_id, kind, swedish, swedish_raw, english, suggested_cloze_word, hash, enriched_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(hash) DO NOTHING`,
+		INSERT INTO entries (note_id, source_entry_id, kind, chinese, chinese_raw, pinyin, english, suggested_cloze_word, hash, enriched_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(hash) DO NOTHING`,
 		noteID, sourceEntryID, string(model.KindExampleSentence),
-		swedishCanon, swedish, english, targetWord, h,
+		chineseCanon, chinese, pinyinCol, english, targetWord, h,
 		enrichedAt.UTC().Format("2006-01-02 15:04:05"),
 	)
 	if err != nil {
@@ -496,14 +515,14 @@ func (s *Store) ReviewAccuracy(ctx context.Context) (rate float64, total int, er
 type TypoSuggestion struct {
 	EntryID    int64
 	Kind       model.Kind
-	SwedishRaw string
+	ChineseRaw string
 	Suggested  string
 }
 
 // ListPendingTypos returns entries that have a Gemini typo_correction set.
 func (s *Store) ListPendingTypos(ctx context.Context) ([]TypoSuggestion, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, kind, swedish_raw, typo_correction
+		`SELECT id, kind, chinese_raw, typo_correction
 		 FROM entries WHERE typo_correction IS NOT NULL ORDER BY id ASC`)
 	if err != nil {
 		return nil, err
@@ -513,7 +532,7 @@ func (s *Store) ListPendingTypos(ctx context.Context) ([]TypoSuggestion, error) 
 	for rows.Next() {
 		var t TypoSuggestion
 		var kindStr string
-		if err := rows.Scan(&t.EntryID, &kindStr, &t.SwedishRaw, &t.Suggested); err != nil {
+		if err := rows.Scan(&t.EntryID, &kindStr, &t.ChineseRaw, &t.Suggested); err != nil {
 			return nil, err
 		}
 		t.Kind = model.Kind(kindStr)
@@ -522,12 +541,12 @@ func (s *Store) ListPendingTypos(ctx context.Context) ([]TypoSuggestion, error) 
 	return out, rows.Err()
 }
 
-// AcceptTypoCorrection rewrites swedish_raw + swedish + hash on the entry to
+// AcceptTypoCorrection rewrites chinese_raw + chinese + hash on the entry to
 // use the suggested form, clears typo_correction, and deletes existing cards
 // for the entry so the caller can regenerate them. Returns the entry's new
-// (kind, swedish_raw, english, suggested_cloze_word) so the caller can call
+// (kind, chineseRaw, english, suggested_cloze_word) so the caller can call
 // cards.Generate.
-func (s *Store) AcceptTypoCorrection(ctx context.Context, entryID int64) (kind model.Kind, swedishRaw, english string, clozeHint *string, err error) {
+func (s *Store) AcceptTypoCorrection(ctx context.Context, entryID int64) (kind model.Kind, chineseRaw, english string, clozeHint *string, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", "", "", nil, fmt.Errorf("begin tx: %w", err)
@@ -551,7 +570,7 @@ func (s *Store) AcceptTypoCorrection(ctx context.Context, entryID int64) (kind m
 	}
 
 	kind = model.Kind(kindStr)
-	swedishRaw = typo.String
+	chineseRaw = typo.String
 	if oldEnglish.Valid {
 		english = oldEnglish.String
 	}
@@ -561,17 +580,14 @@ func (s *Store) AcceptTypoCorrection(ctx context.Context, entryID int64) (kind m
 	}
 
 	// Re-canonicalize the same way the parser does.
-	canon := strings.TrimRight(strings.ToLower(strings.TrimSpace(swedishRaw)), ".!?")
-	if kind == model.KindVerb && strings.HasPrefix(canon, "att ") {
-		canon = strings.TrimSpace(canon[4:])
-	}
+	canon := strings.TrimRight(strings.TrimSpace(chineseRaw), ".!?。！？")
 	newHash := entryHash(kind, canon, english)
 
 	if _, err = tx.ExecContext(ctx,
 		`UPDATE entries
-		   SET swedish = ?, swedish_raw = ?, hash = ?, typo_correction = NULL
+		   SET chinese = ?, chinese_raw = ?, hash = ?, typo_correction = NULL
 		 WHERE id = ?`,
-		canon, swedishRaw, newHash, entryID,
+		canon, chineseRaw, newHash, entryID,
 	); err != nil {
 		return "", "", "", nil, fmt.Errorf("update entry: %w", err)
 	}
@@ -585,10 +601,10 @@ func (s *Store) AcceptTypoCorrection(ctx context.Context, entryID int64) (kind m
 	if err = tx.Commit(); err != nil {
 		return "", "", "", nil, fmt.Errorf("commit: %w", err)
 	}
-	return kind, swedishRaw, english, clozeHint, nil
+	return kind, chineseRaw, english, clozeHint, nil
 }
 
-// DismissTypoCorrection clears the typo_correction without changing swedish_raw.
+// DismissTypoCorrection clears the typo_correction without changing chinese_raw.
 func (s *Store) DismissTypoCorrection(ctx context.Context, entryID int64) error {
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE entries SET typo_correction = NULL WHERE id = ?`, entryID)
@@ -696,7 +712,8 @@ func (s *Store) DeleteEntriesByCardIDs(ctx context.Context, cardIDs []int64) (in
 // ExampleSentence is one of (possibly many) Gemini-generated example sentences
 // attached to a word/phrase/verb entry.
 type ExampleSentence struct {
-	Swedish    string
+	Chinese    string
+	Pinyin     string
 	English    string
 	TargetWord string
 }
@@ -706,7 +723,7 @@ type ExampleSentence struct {
 // (using one of its example sentences) instead of a translation.
 func (s *Store) ListExampleSentencesForEntry(ctx context.Context, sourceEntryID int64) ([]ExampleSentence, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT swedish_raw, english, suggested_cloze_word
+		SELECT chinese_raw, pinyin, english, suggested_cloze_word
 		FROM entries
 		WHERE kind = 'example_sentence' AND source_entry_id = ?`, sourceEntryID)
 	if err != nil {
@@ -716,9 +733,12 @@ func (s *Store) ListExampleSentencesForEntry(ctx context.Context, sourceEntryID 
 	var out []ExampleSentence
 	for rows.Next() {
 		var es ExampleSentence
-		var english, target sql.NullString
-		if err := rows.Scan(&es.Swedish, &english, &target); err != nil {
+		var pinyin, english, target sql.NullString
+		if err := rows.Scan(&es.Chinese, &pinyin, &english, &target); err != nil {
 			return nil, err
+		}
+		if pinyin.Valid {
+			es.Pinyin = pinyin.String
 		}
 		if english.Valid {
 			es.English = english.String
@@ -740,14 +760,17 @@ func (s *Store) GetEntryByCardID(ctx context.Context, cardID int64) (*EntryRow, 
 
 	var e EntryRow
 	var kindStr string
-	var english, cloze sql.NullString
-	if err := row.Scan(&e.ID, &e.NoteID, &kindStr, &e.Swedish, &e.SwedishRaw, &english, &cloze); err != nil {
+	var pinyin, english, cloze sql.NullString
+	if err := row.Scan(&e.ID, &e.NoteID, &kindStr, &e.Chinese, &e.ChineseRaw, &pinyin, &english, &cloze); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, err
 	}
 	e.Kind = model.Kind(kindStr)
+	if pinyin.Valid {
+		e.Pinyin = pinyin.String
+	}
 	if english.Valid {
 		e.English = english.String
 	}
@@ -761,11 +784,11 @@ func (s *Store) GetEntryByCardID(ctx context.Context, cardID int64) (*EntryRow, 
 // FixLegacyClozeFronts normalizes cards whose `front` still contains the
 // `____` placeholder from the pre-refactor schema (when cloze cards stored
 // the masked sentence as their front). After the 1-card-per-entry refactor,
-// the front should be the FULL Swedish text — rotateBlank inserts the blank
+// the front should be the FULL Chinese text — rotateBlank inserts the blank
 // at render time. Returns the number of cards updated.
 func (s *Store) FixLegacyClozeFronts(ctx context.Context) (int, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT c.id, c.card_type, c.back, e.swedish_raw
+		SELECT c.id, c.card_type, c.back, e.chinese_raw
 		FROM cards c JOIN entries e ON e.id = c.entry_id
 		WHERE instr(c.front, '____') > 0`)
 	if err != nil {

@@ -10,11 +10,11 @@ import (
 	"syscall"
 	"time"
 
-	"swedishCards/internal/cards"
-	"swedishCards/internal/config"
-	"swedishCards/internal/llm"
-	"swedishCards/internal/store"
-	"swedishCards/internal/web"
+	"chineseCards/internal/cards"
+	"chineseCards/internal/config"
+	"chineseCards/internal/llm"
+	"chineseCards/internal/store"
+	"chineseCards/internal/web"
 )
 
 func Run() error {
@@ -121,7 +121,7 @@ func backfillCards(ctx context.Context, st *store.Store) error {
 		if len(existing) > 0 {
 			continue
 		}
-		for _, c := range cards.Generate(e.Kind, e.SwedishRaw, e.English, e.SuggestedClozeWord) {
+		for _, c := range cards.Generate(e.Kind, e.ChineseRaw, e.English, e.SuggestedClozeWord) {
 			res, err := st.InsertCard(ctx, e.ID, c.CardType, c.Front, c.Back, c.ClozeAnswer)
 			if err != nil {
 				slog.Warn("backfill insert", "entry_id", e.ID, "err", err)

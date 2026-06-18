@@ -1,4 +1,4 @@
-{{define "title"}}Cards — Swedish Cards{{end}}
+{{define "title"}}Cards — Chinese Cards{{end}}
 {{define "content"}}
 <h1>Cards <span class="muted">({{.Total}})</span></h1>
 
@@ -9,7 +9,7 @@
     {{range .Typos}}
     <div class="typo-row">
         <div class="typo-text">
-            <code class="typo-old">{{.SwedishRaw}}</code>
+            <code class="typo-old">{{.ChineseRaw}}</code>
             <span class="typo-arrow">→</span>
             <code class="typo-new">{{.Suggested}}</code>
             <span class="kind kind-{{.Kind}}">{{.Kind}}</span>

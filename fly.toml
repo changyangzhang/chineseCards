@@ -1,16 +1,16 @@
-# fly.toml app configuration file generated for swedish-cards on 2026-06-02T14:43:06+02:00
+# fly.toml app configuration file for chinese-cards
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'swedish-cards'
+app = 'chinese-cards'
 primary_region = 'arn'
 
 [build]
   dockerfile = 'Dockerfile'
 
 [env]
-  DB_PATH = '/data/swedish.db'
+  DB_PATH = '/data/chinese.db'
   GEMINI_MODEL = 'gemini-2.5-flash'
   HTTP_ADDR = ':8080'
 
