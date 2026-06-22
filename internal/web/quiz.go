@@ -8,6 +8,61 @@ import (
 	"chineseCards/internal/store"
 )
 
+// blankWithTarget replaces the first occurrence of `target` in `sentence`
+// with `____`. Use when the LLM supplied a specific word to drill — works
+// for unsegmented hanzi where whitespace tokenisation can't help. Returns
+// ("", "") if target is empty or absent.
+func blankWithTarget(sentence, target string) (front, answer string) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return "", ""
+	}
+	idx := strings.Index(sentence, target)
+	if idx < 0 {
+		return "", ""
+	}
+	front = sentence[:idx] + "____" + sentence[idx+len(target):]
+	return front, target
+}
+
+// makeClozeFront builds the cloze prompt for `sentence`. Prefers the LLM-
+// supplied `target` (a specific word to drill); falls back to whitespace-
+// tokenised rotation. Returns ok=false when neither approach produces a
+// sensible blank — i.e., when the masked result is essentially empty (only
+// "____" and punctuation), which happens for unsegmented single-word
+// sentences without a target.
+func makeClozeFront(sentence, target string) (front, answer string, ok bool) {
+	if f, a := blankWithTarget(sentence, target); a != "" {
+		if hasContextAroundBlank(f) {
+			return f, a, true
+		}
+	}
+	f, a := rotateBlank(sentence)
+	if a == "" {
+		return "", "", false
+	}
+	if !hasContextAroundBlank(f) {
+		return "", "", false
+	}
+	return f, a, true
+}
+
+// hasContextAroundBlank reports whether the masked sentence still carries
+// readable content outside the blank. A "front" that's just "____" or
+// "____." gives the user nothing to work with — disable cloze instead.
+func hasContextAroundBlank(front string) bool {
+	stripped := strings.ReplaceAll(front, "____", "")
+	for _, r := range stripped {
+		switch {
+		case r >= '一' && r <= '鿿': // CJK unified ideographs
+			return true
+		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z'):
+			return true
+		}
+	}
+	return false
+}
+
 // rotateBlank picks a random non-stopword token from the sentence and returns
 // the front (with that token replaced by ____) and the blanked answer.
 // Returns (sentence, "") when no eligible token exists.

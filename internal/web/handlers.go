@@ -868,31 +868,36 @@ func (s *Server) prepareQuizCard(ctx context.Context, card *store.ReviewCard) (*
 	// What modes are available for this entry?
 	hasEnglish := card.Back != ""
 
-	// Find a sentence we can present as cloze, if any. clozePinyin holds the
-	// toned pinyin for that sentence (DB-supplied when the LLM enriched it,
-	// computed at render time otherwise).
-	var clozeSentence, clozeEnglish, clozePinyin string
+	// Find a sentence we can present as cloze, if any. clozeTarget is the
+	// LLM-supplied word to blank (preferred over whitespace tokenisation,
+	// which can't usefully segment unsegmented hanzi).
+	var clozeSentence, clozeEnglish, clozeTarget string
 	switch entry.Kind {
 	case model.KindSentence, model.KindSentenceUntranslated:
 		clozeSentence = card.Front // the sentence itself
 		clozeEnglish = card.Back   // may be empty
-		clozePinyin = pinyinOr(entry.Pinyin, clozeSentence)
+		if card.ClozeAnswer != nil {
+			clozeTarget = *card.ClozeAnswer
+		}
 	case model.KindWord, model.KindPhrase, model.KindVerb:
 		examples, _ := s.store.ListExampleSentencesForEntry(ctx, entry.ID)
 		if len(examples) > 0 {
 			ex := examples[rand.IntN(len(examples))]
 			clozeSentence = ex.Chinese
 			clozeEnglish = ex.English
-			clozePinyin = pinyinOr(ex.Pinyin, ex.Chinese)
+			clozeTarget = ex.TargetWord
 		}
 	}
 
-	// If cloze is available, verify there's at least one non-stopword to blank.
+	// Cloze is available only when masking yields a prompt with readable
+	// context around the blank — never a bare "____.".
 	clozeAvailable := false
+	var clozeFront, clozeAnswer string
 	if clozeSentence != "" {
-		_, ans := rotateBlank(clozeSentence)
-		if ans != "" {
+		if f, a, ok := makeClozeFront(clozeSentence, clozeTarget); ok {
 			clozeAvailable = true
+			clozeFront = f
+			clozeAnswer = a
 		}
 	}
 
@@ -938,11 +943,15 @@ func (s *Server) prepareQuizCard(ctx context.Context, card *store.ReviewCard) (*
 		}
 		q.Choices, q.ChoicesPinyin = buildChinChoices(q.Correct, entryPinyin, distractors)
 	case ModeMCCloze:
-		q.Front, q.Correct = rotateBlank(clozeSentence)
+		q.Front = clozeFront
+		q.Correct = clozeAnswer
 		q.IsCloze = true
 		q.IsFrontChinese = true
 		q.IsChoicesChinese = true
-		q.FrontPinyin = pinyinOr(clozePinyin, q.Front)
+		// Pinyin must come from the BLANKED sentence — using the full-sentence
+		// pinyin would emit "wǒ xǐhuān chī fàn" for "我____吃饭" and give the
+		// answer away verbatim.
+		q.FrontPinyin = pinyinFor(q.Front)
 		if clozeEnglish != "" {
 			q.HintBelow = clozeEnglish
 		}

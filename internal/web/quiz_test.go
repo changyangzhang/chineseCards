@@ -59,6 +59,75 @@ func TestRotateBlank_PreservesTrailingPunct(t *testing.T) {
 	}
 }
 
+func TestBlankWithTarget_ReplacesFirstOccurrence(t *testing.T) {
+	front, ans := blankWithTarget("我喜欢吃饭", "喜欢")
+	if front != "我____吃饭" {
+		t.Errorf("front = %q, want %q", front, "我____吃饭")
+	}
+	if ans != "喜欢" {
+		t.Errorf("answer = %q, want %q", ans, "喜欢")
+	}
+}
+
+func TestBlankWithTarget_TargetMissing(t *testing.T) {
+	_, ans := blankWithTarget("你好", "再见")
+	if ans != "" {
+		t.Errorf("answer = %q, want empty for missing target", ans)
+	}
+}
+
+func TestBlankWithTarget_EmptyTarget(t *testing.T) {
+	_, ans := blankWithTarget("你好", "")
+	if ans != "" {
+		t.Errorf("empty target should produce no blanking; got %q", ans)
+	}
+}
+
+func TestMakeClozeFront_PrefersTarget(t *testing.T) {
+	f, a, ok := makeClozeFront("我喜欢吃饭", "喜欢")
+	if !ok || f != "我____吃饭" || a != "喜欢" {
+		t.Errorf("got (%q, %q, %v); want target-based blanking", f, a, ok)
+	}
+}
+
+func TestMakeClozeFront_UnsegmentedSingleWordNoTargetIsNotOK(t *testing.T) {
+	// "你好" is one whitespace-token, no target — rotateBlank would mask the
+	// whole thing, leaving "____" with no context. ok must be false so the
+	// caller picks a different mode.
+	_, _, ok := makeClozeFront("你好", "")
+	if ok {
+		t.Errorf("cloze should NOT be available for unsegmented single-token hanzi without a target")
+	}
+}
+
+func TestMakeClozeFront_WhitespaceTokenisedFallback(t *testing.T) {
+	// Pinyin-style (spaces present) — rotateBlank can pick a content word.
+	_, a, ok := makeClozeFront("wǒ xǐhuān chī fàn", "")
+	if !ok || a == "" {
+		t.Errorf("expected whitespace-tokenised cloze to succeed; got ok=%v, answer=%q", ok, a)
+	}
+}
+
+func TestHasContextAroundBlank(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"____", false},
+		{"____.", false},
+		{" ____  ", false},
+		{"我____吃饭", true},
+		{"____ apple", true},
+		{"我____", true},
+	}
+	for _, c := range cases {
+		got := hasContextAroundBlank(c.in)
+		if got != c.want {
+			t.Errorf("hasContextAroundBlank(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
 func TestBuildChoices_AlwaysContainsCorrect(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		out := buildChoices("right", []string{"a", "b", "c"})
