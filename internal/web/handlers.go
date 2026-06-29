@@ -955,17 +955,17 @@ func (s *Server) prepareQuizCard(ctx context.Context, card *store.ReviewCard) (*
 		if clozeEnglish != "" {
 			q.HintBelow = clozeEnglish
 		}
-		// Cloze choices are individual words — we don't have per-word pinyin
-		// stored, so fall back to the offline library per choice.
-		distractors, err := s.store.GetDistractors(ctx, "cloze_answer", card.ID, q.Correct, 3)
+		// Pull cloze distractors from the front column of other word-kind
+		// cards. This pool is much richer than cloze_answer (only set on
+		// sentence-kind entries) and gives plausible, varied Chinese-word
+		// alternatives. Each distractor carries the entry's pinyin from the
+		// DB, with offline-library fallback when missing.
+		correctPinyin := pinyinFor(q.Correct)
+		distractors, err := s.store.GetClozeWordDistractors(ctx, card.ID, q.Correct, 3)
 		if err != nil {
 			return nil, err
 		}
-		q.Choices = buildChoices(q.Correct, distractors)
-		q.ChoicesPinyin = make([]string, len(q.Choices))
-		for i, c := range q.Choices {
-			q.ChoicesPinyin[i] = pinyinFor(c)
-		}
+		q.Choices, q.ChoicesPinyin = buildChinChoices(q.Correct, correctPinyin, distractors)
 	}
 	return q, nil
 }

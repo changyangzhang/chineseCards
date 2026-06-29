@@ -651,6 +651,42 @@ type DistractorChoice struct {
 	Pinyin string
 }
 
+// GetClozeWordDistractors returns up to n short Chinese word distractors for a
+// cloze quiz. Pulls from the front column of OTHER cards whose entries are
+// word/phrase/verb kinds — never sentences — so a one-word cloze answer
+// doesn't get a whole-sentence "distractor" sitting next to it. Each result
+// carries the entry's pinyin so the review page can render reading help
+// under each option.
+//
+// This replaces the previous "distractors from cloze_answer column" path,
+// which only returned rows for entries that happened to have a cloze_answer
+// set — often a deck of one in personal use, producing always-the-same
+// distractor and a two-option quiz.
+func (s *Store) GetClozeWordDistractors(ctx context.Context, excludeID int64, correct string, n int) ([]DistractorChoice, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT c.front, COALESCE(e.pinyin, '')
+		FROM cards c JOIN entries e ON e.id = c.entry_id
+		WHERE c.id != ?
+		  AND c.front IS NOT NULL AND c.front != ''
+		  AND LOWER(c.front) != LOWER(?)
+		  AND e.kind IN ('word', 'phrase', 'verb')
+		ORDER BY RANDOM() LIMIT ?`,
+		excludeID, correct, n)
+	if err != nil {
+		return nil, fmt.Errorf("get cloze word distractors: %w", err)
+	}
+	defer rows.Close()
+	out := make([]DistractorChoice, 0, n)
+	for rows.Next() {
+		var d DistractorChoice
+		if err := rows.Scan(&d.Text, &d.Pinyin); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 // GetChineseDistractors is GetDistractors specialised for the Chinese "front"
 // column: it joins entries to also surface the entry's pinyin, so the review
 // page can render pinyin under each hanzi option. The current card and the
