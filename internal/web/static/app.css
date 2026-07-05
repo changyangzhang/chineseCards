@@ -546,6 +546,30 @@ table.cards tr:last-child td { border-bottom: none; }
 .mode-mc_cloze, .mode-fill_cloze { border-left: 3px solid var(--gold); }
 .mode-mc_translate, .mode-fill_translate { border-left: 3px solid var(--accent); }
 
+/* Row holding the mode badge and the optional retry badge side-by-side.
+   Preserves the mode-badge's bottom margin behavior on the row itself. */
+.mode-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+    flex-wrap: wrap;
+}
+.mode-row .mode-badge { margin-bottom: 0; }
+
+.retry-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    background: var(--warn-bg);
+    color: var(--warn-fg);
+    border: 1px solid var(--warn-fg);
+    font-size: 0.75rem;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    cursor: help;
+}
+
 .quiz-form { margin: 0; }
 
 /* Swedish text-to-speech buttons (Web Speech API) */

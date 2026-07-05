@@ -78,8 +78,16 @@ Reviewing the same card twice in a row never looks identical:
 - For word entries that have a Gemini-generated example sentence attached,
   the cloze mode uses that example so you drill the word in context.
 
-Auto-graded: correct → SM-2 `Good`; wrong → `Again`. No self-rating. A small
-ribbon at the top shows the previous answer's result before each new card.
+Auto-graded: correct → SM-2 `Good`; wrong → **doesn't count**. A small ribbon
+at the top shows the previous answer's result before each new card.
+
+**Session retry loop.** If you pick the wrong option, the card is quietly
+appended to the end of the current session and comes back until you get it
+right. Retries don't insert a review row, don't advance the SM-2 schedule,
+and don't count against the daily target — only the eventual correct answer
+does. The card's `lapses` counter still increments so "I struggled here" is
+visible in `/stats`. Retried cards get a small **🔁 second try** badge next
+to the mode indicator.
 
 ### Text-to-speech
 🔊 buttons next to every Chinese text element. Uses the browser's Web Speech

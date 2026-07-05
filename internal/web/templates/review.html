@@ -74,10 +74,15 @@
     {{end}}
 
     {{if .Card}}
-    <div class="mode-badge mode-{{.Card.Mode}}">
-        {{if eq (printf "%s" .Card.Mode) "mc_translate"}}🇨🇳 → 🇬🇧 translate
-        {{else if eq (printf "%s" .Card.Mode) "mc_translate_rev"}}🇬🇧 → 🇨🇳 translate
-        {{else if eq (printf "%s" .Card.Mode) "mc_cloze"}}fill the blank
+    <div class="mode-row">
+        <div class="mode-badge mode-{{.Card.Mode}}">
+            {{if eq (printf "%s" .Card.Mode) "mc_translate"}}🇨🇳 → 🇬🇧 translate
+            {{else if eq (printf "%s" .Card.Mode) "mc_translate_rev"}}🇬🇧 → 🇨🇳 translate
+            {{else if eq (printf "%s" .Card.Mode) "mc_cloze"}}fill the blank
+            {{end}}
+        </div>
+        {{if .Card.IsRetry}}
+        <span class="retry-badge" title="This card comes back until you get it right — doesn't count toward today's target">🔁 second try</span>
         {{end}}
     </div>
 

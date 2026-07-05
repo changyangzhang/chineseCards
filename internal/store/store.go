@@ -1094,6 +1094,19 @@ func (s *Store) DiagnoseEmptyQueue(ctx context.Context) (*QueueDiagnostic, error
 	return d, nil
 }
 
+// IncrementCardLapse bumps a card's lapses counter by 1 without inserting a
+// review row or advancing SM-2 state. Used by the in-session retry loop: a
+// wrong pick shouldn't consume the daily budget or move the card's schedule,
+// but the "I struggled with this" signal is worth keeping.
+func (s *Store) IncrementCardLapse(ctx context.Context, cardID int64) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE cards SET lapses = lapses + 1 WHERE id = ?`, cardID)
+	if err != nil {
+		return fmt.Errorf("increment lapse: %w", err)
+	}
+	return nil
+}
+
 // LastNRatings returns the N most recent review ratings (time descending).
 // Used by the motivation picker to detect trailing-correct runs and recovery
 // from a lapse without re-computing it from the full reviews log.

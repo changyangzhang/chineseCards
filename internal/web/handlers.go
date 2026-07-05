@@ -28,10 +28,39 @@ type Server struct {
 	store    *store.Store
 	renderer *Renderer
 	llm      *llm.Client // nil if no API key
+	retry    *retryQueue // in-session "get it right before moving on" queue
 }
 
 func NewServer(cfg config.Config, st *store.Store, r *Renderer, lc *llm.Client) *Server {
-	return &Server{cfg: cfg, store: st, renderer: r, llm: lc}
+	return &Server{cfg: cfg, store: st, renderer: r, llm: lc, retry: &retryQueue{}}
+}
+
+// nextCardForReview picks the next card to show. Normal SRS queue first
+// (respecting the daily target); when it's exhausted, drain the in-memory
+// retry queue in FIFO order. Skips retry entries whose card was deleted
+// mid-session. Returns isRetry=true so the quiz surface can badge the card.
+func (s *Server) nextCardForReview(ctx context.Context) (card *store.ReviewCard, isRetry bool, err error) {
+	card, err = s.store.NextCardForReview(ctx, s.dailyTarget(ctx), newCardRatio)
+	if err != nil {
+		return nil, false, err
+	}
+	if card != nil {
+		return card, false, nil
+	}
+	for {
+		id, ok := s.retry.pop()
+		if !ok {
+			return nil, false, nil
+		}
+		c, err := s.store.GetReviewCard(ctx, id)
+		if err != nil {
+			return nil, false, err
+		}
+		if c != nil {
+			return c, true, nil
+		}
+		// Card was deleted mid-session; skip and try the next retry.
+	}
 }
 
 type homeData struct {
@@ -308,14 +337,20 @@ func (s *Server) handleReviewDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "store error", http.StatusInternalServerError)
 		return
 	}
+	// Also drop the just-deleted card from any pending retries so the
+	// queue doesn't try to serve a ghost.
+	s.retry.remove(id)
 
-	next, err := s.store.NextCardForReview(ctx, s.dailyTarget(ctx), newCardRatio)
+	next, isRetry, err := s.nextCardForReview(ctx)
 	if err != nil {
 		slog.Error("next after delete", "err", err)
 		http.Error(w, "store error", http.StatusInternalServerError)
 		return
 	}
 	q, err := s.prepareQuizCard(ctx, next)
+	if q != nil {
+		q.IsRetry = isRetry
+	}
 	if err != nil {
 		slog.Error("prepare next after delete", "err", err)
 		http.Error(w, "store error", http.StatusInternalServerError)
@@ -735,6 +770,9 @@ func (s *Server) handleCardsBulkDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "store error", http.StatusInternalServerError)
 		return
 	}
+	for _, id := range ids {
+		s.retry.remove(id)
+	}
 	slog.Info("bulk delete", "deleted_entries", n, "requested", len(ids))
 	http.Redirect(w, r, "/cards", http.StatusSeeOther)
 }
@@ -756,6 +794,7 @@ func (s *Server) handleCardDelete(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	s.retry.remove(id)
 	slog.Info("card deleted", "card_id", id)
 	http.Redirect(w, r, "/cards", http.StatusSeeOther)
 }
@@ -820,6 +859,7 @@ type quizCard struct {
 	IsTranslate      bool
 	IsFrontChinese   bool // speaker button on front speaks Chinese
 	IsChoicesChinese bool // speaker buttons next to choices speak Chinese
+	IsRetry          bool // true when this card came off the in-session retry queue
 }
 
 // lastResult drives the green/red ribbon shown above the new card after a pick.
@@ -975,11 +1015,13 @@ func (s *Server) handleReview(w http.ResponseWriter, r *http.Request) {
 	early := r.URL.Query().Get("early") == "1"
 
 	var card *store.ReviewCard
+	var isRetry bool
 	var err error
 	if early {
+		// "Review anyway" bypasses everything, including the retry queue.
 		card, err = s.store.NextCardEarly(ctx)
 	} else {
-		card, err = s.store.NextCardForReview(ctx, s.dailyTarget(ctx), newCardRatio)
+		card, isRetry, err = s.nextCardForReview(ctx)
 	}
 	if err != nil {
 		slog.Error("next card", "err", err)
@@ -987,6 +1029,9 @@ func (s *Server) handleReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q, err := s.prepareQuizCard(ctx, card)
+	if q != nil {
+		q.IsRetry = isRetry
+	}
 	if err != nil {
 		slog.Error("prepare quiz card", "err", err)
 		http.Error(w, "store error", http.StatusInternalServerError)
@@ -1085,33 +1130,43 @@ func (s *Server) handleReviewPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wasCorrect := strings.EqualFold(chosen, correct)
-	rating := srs.RatingGood
-	if !wasCorrect {
-		rating = srs.RatingAgain
-	}
-
 	now := time.Now().UTC()
-	prevState := srs.State{
-		EaseFactor:  card.EaseFactor,
-		Interval:    card.IntervalDays,
-		Repetitions: card.Repetitions,
-		Lapses:      card.Lapses,
-		DueAt:       card.DueAt,
-	}
-	if card.LastReviewed != nil {
-		prevState.LastReviewed = *card.LastReviewed
-	}
-	newState := srs.Apply(prevState, rating, now)
 
-	if err := s.store.ApplyReview(ctx, card.ID, rating,
-		prevState.Interval, newState.Interval,
-		prevState.EaseFactor, newState.EaseFactor,
-		newState.Repetitions, newState.Lapses,
-		newState.DueAt, now,
-	); err != nil {
-		slog.Error("apply review", "err", err)
-		http.Error(w, "store error", http.StatusInternalServerError)
-		return
+	if wasCorrect {
+		// Normal SM-2 update — one review row, advances the schedule, counts
+		// against the daily budget.
+		prevState := srs.State{
+			EaseFactor:  card.EaseFactor,
+			Interval:    card.IntervalDays,
+			Repetitions: card.Repetitions,
+			Lapses:      card.Lapses,
+			DueAt:       card.DueAt,
+		}
+		if card.LastReviewed != nil {
+			prevState.LastReviewed = *card.LastReviewed
+		}
+		newState := srs.Apply(prevState, srs.RatingGood, now)
+		if err := s.store.ApplyReview(ctx, card.ID, srs.RatingGood,
+			prevState.Interval, newState.Interval,
+			prevState.EaseFactor, newState.EaseFactor,
+			newState.Repetitions, newState.Lapses,
+			newState.DueAt, now,
+		); err != nil {
+			slog.Error("apply review", "err", err)
+			http.Error(w, "store error", http.StatusInternalServerError)
+			return
+		}
+		// If this card was on the retry queue, they nailed it — drop it.
+		s.retry.remove(card.ID)
+	} else {
+		// Wrong pick: don't insert a review row, don't touch the SM-2
+		// schedule. Just bump the "I struggled here" counter and re-queue
+		// the card for later in the same session. The retry attempts don't
+		// count against the daily target.
+		if err := s.store.IncrementCardLapse(ctx, card.ID); err != nil {
+			slog.Warn("increment lapse", "err", err, "card_id", card.ID)
+		}
+		s.retry.push(card.ID)
 	}
 
 	last := &lastResult{
@@ -1129,13 +1184,16 @@ func (s *Server) handleReviewPost(w http.ResponseWriter, r *http.Request) {
 	}
 	last.Motivation = pickReviewNudge(ctx, s.store, wasCorrect)
 
-	next, err := s.store.NextCardForReview(ctx, s.dailyTarget(ctx), newCardRatio)
+	next, isRetry, err := s.nextCardForReview(ctx)
 	if err != nil {
 		slog.Error("next after review", "err", err)
 		http.Error(w, "store error", http.StatusInternalServerError)
 		return
 	}
 	q, err := s.prepareQuizCard(ctx, next)
+	if q != nil {
+		q.IsRetry = isRetry
+	}
 	if err != nil {
 		slog.Error("prepare next", "err", err)
 		http.Error(w, "store error", http.StatusInternalServerError)
