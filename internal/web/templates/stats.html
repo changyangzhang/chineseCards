@@ -23,11 +23,6 @@
 <p class="muted">Last review: <strong>{{.LastReview}}</strong></p>
 
 <section>
-    <h2>Six months at a glance <span class="muted">({{.Contrib.Total}} reviews)</span></h2>
-    {{template "contrib" .Contrib}}
-</section>
-
-<section>
     <h2>Reviews in the last 30 days <span class="muted">({{.ReviewsTotal30d}} total)</span></h2>
     {{template "chart" .ReviewsChart}}
 </section>
@@ -52,30 +47,3 @@
 </svg>
 {{end}}
 
-{{define "contrib"}}
-<div class="contrib-wrap">
-    <svg viewBox="0 0 {{.Width}} {{.TotalHeight}}" class="contrib" preserveAspectRatio="xMinYMid meet" role="img" aria-label="Six-month review activity grid">
-        {{$g := .}}
-        {{range .Months}}
-        <text x="{{.X}}" y="10" class="contrib-month">{{.Label}}</text>
-        {{end}}
-        <g transform="translate(0, 14)">
-            {{range .Cells}}
-            <rect x="{{.X}}" y="{{.Y}}" width="{{$g.CellSize}}" height="{{$g.CellSize}}"
-                  rx="2" ry="2" class="contrib-cell contrib-l{{.Level}}">
-                <title>{{.Label}}</title>
-            </rect>
-            {{end}}
-        </g>
-    </svg>
-    <div class="contrib-legend">
-        <span class="muted">less</span>
-        <span class="contrib-swatch contrib-l0"></span>
-        <span class="contrib-swatch contrib-l1"></span>
-        <span class="contrib-swatch contrib-l2"></span>
-        <span class="contrib-swatch contrib-l3"></span>
-        <span class="contrib-swatch contrib-l4"></span>
-        <span class="muted">more</span>
-    </div>
-</div>
-{{end}}

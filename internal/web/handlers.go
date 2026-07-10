@@ -82,10 +82,12 @@ type homeData struct {
 	TotalCount int
 	LLMEnabled bool
 	LLMModel   string
-	Motivation *Nudge            // optional sweet line under today's stats
-	Trophies   []trophy          // milestones at 30 / 100 / 500 / 1000 / 5000 reviews
-	NextTrophy *trophy           // ghost preview of the next unreached milestone
-	WordOfDay  *store.WordOfDay  // today's featured word, or nil when the deck is empty
+	Motivation *Nudge           // optional sweet line under today's stats
+	Trophies   []trophy         // milestones at 30 / 100 / 500 / 1000 / 5000 reviews
+	NextTrophy *trophy          // ghost preview of the next unreached milestone
+	WordOfDay  *store.WordOfDay // today's featured word, or nil when the deck is empty
+	Contrib    contribGrid      // six-month GitHub-style activity heatmap
+	HasReviews bool             // true when there's at least one review to shade the grid with
 }
 
 // trophy is a lifetime-review milestone shown as a chip on the home page.
@@ -128,6 +130,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	_, totalReviews, _ := s.store.ReviewAccuracy(ctx)
 	reached, next := trophiesFor(totalReviews)
 	wotd := s.pickWordOfDay(ctx)
+	contribRows, _ := s.store.ReviewsByDay(ctx, 26*7)
 	s.renderer.Render(w, "home", homeData{
 		DueCount:   due,
 		NewCount:   new_,
@@ -138,6 +141,8 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		Trophies:   reached,
 		NextTrophy: next,
 		WordOfDay:  wotd,
+		Contrib:    buildContribGrid(time.Now(), contribRows),
+		HasReviews: totalReviews > 0,
 	})
 }
 
@@ -1392,8 +1397,6 @@ type statsData struct {
 	DueChart        chartData
 	ReviewsTotal30d int
 	DueTotal14d     int
-
-	Contrib contribGrid // 6-month GitHub-style heatmap of daily activity
 }
 
 // contribCell is one square on the contribution grid.
@@ -1536,7 +1539,6 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	dueRows, _ := s.store.DueByDay(ctx, 14)
 	accuracy, total, _ := s.store.ReviewAccuracy(ctx)
 	dates, _ := s.store.ReviewDatesDesc(ctx, 200)
-	contribRows, _ := s.store.ReviewsByDay(ctx, 26*7) // 6 months for the heatmap
 
 	streak, lastReview := computeStreak(dates)
 
@@ -1552,7 +1554,6 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		DueChart:        dueChart,
 		ReviewsTotal30d: sumBars(reviewsChart.Bars),
 		DueTotal14d:     sumBars(dueChart.Bars),
-		Contrib:         buildContribGrid(now, contribRows),
 	}
 	if !lastReview.IsZero() {
 		data.LastReview = lastReview.Format("2006-01-02")

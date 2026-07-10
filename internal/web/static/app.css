@@ -715,7 +715,18 @@ table.cards tr:last-child td { border-bottom: none; }
 }
 .trophy-next .trophy-icon { filter: grayscale(0.6); }
 
-/* ---- Six-month contribution heatmap on /stats ---- */
+/* ---- Six-month contribution heatmap on /home ---- */
+.contrib-section {
+    margin: 1.25rem 0 0.5rem;
+}
+.contrib-section h2 {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    font-weight: 600;
+    margin: 0 0 0.65rem 0;
+}
 .contrib-wrap {
     max-width: 100%;
     overflow-x: auto;

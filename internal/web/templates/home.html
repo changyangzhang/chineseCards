@@ -16,6 +16,13 @@
     </div>
 </div>
 
+{{if .HasReviews}}
+<section class="contrib-section">
+    <h2>Six months at a glance <span class="muted">({{.Contrib.Total}} reviews)</span></h2>
+    {{template "contrib" .Contrib}}
+</section>
+{{end}}
+
 {{if or .Trophies .NextTrophy}}
 <div class="trophy-shelf" aria-label="Review milestones">
     {{range .Trophies}}
@@ -74,4 +81,32 @@
 {{else}}
 <p class="hint warning">AI enrichment: <strong>disabled</strong> — set <code>GEMINI_API_KEY</code> in <code>.env</code> (free at <a href="https://aistudio.google.com/apikey">aistudio.google.com/apikey</a>) to translate bare sentences and generate example sentences.</p>
 {{end}}
+{{end}}
+
+{{define "contrib"}}
+<div class="contrib-wrap">
+    <svg viewBox="0 0 {{.Width}} {{.TotalHeight}}" class="contrib" preserveAspectRatio="xMinYMid meet" role="img" aria-label="Six-month review activity grid">
+        {{$g := .}}
+        {{range .Months}}
+        <text x="{{.X}}" y="10" class="contrib-month">{{.Label}}</text>
+        {{end}}
+        <g transform="translate(0, 14)">
+            {{range .Cells}}
+            <rect x="{{.X}}" y="{{.Y}}" width="{{$g.CellSize}}" height="{{$g.CellSize}}"
+                  rx="2" ry="2" class="contrib-cell contrib-l{{.Level}}">
+                <title>{{.Label}}</title>
+            </rect>
+            {{end}}
+        </g>
+    </svg>
+    <div class="contrib-legend">
+        <span class="muted">less</span>
+        <span class="contrib-swatch contrib-l0"></span>
+        <span class="contrib-swatch contrib-l1"></span>
+        <span class="contrib-swatch contrib-l2"></span>
+        <span class="contrib-swatch contrib-l3"></span>
+        <span class="contrib-swatch contrib-l4"></span>
+        <span class="muted">more</span>
+    </div>
+</div>
 {{end}}
