@@ -1107,6 +1107,49 @@ func (s *Store) IncrementCardLapse(ctx context.Context, cardID int64) error {
 	return nil
 }
 
+// DayAccuracy is one calendar day's aggregate — used by the motivation
+// picker to spot a personal-best-today moment.
+type DayAccuracy struct {
+	Date    time.Time
+	Correct int
+	Total   int
+}
+
+// AccuracyByDay returns per-day (correct, total) rows for the last `days`
+// days, in ascending date order. Days with no reviews are omitted (caller
+// treats them as zero).
+func (s *Store) AccuracyByDay(ctx context.Context, days int) ([]DayAccuracy, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT
+			date(reviewed_at) AS d,
+			SUM(CASE WHEN rating >= 4 THEN 1 ELSE 0 END) AS correct,
+			COUNT(*)                                    AS total
+		FROM reviews
+		WHERE reviewed_at >= date('now', ?)
+		GROUP BY d
+		ORDER BY d ASC`,
+		fmt.Sprintf("-%d days", days-1))
+	if err != nil {
+		return nil, fmt.Errorf("accuracy by day: %w", err)
+	}
+	defer rows.Close()
+	var out []DayAccuracy
+	for rows.Next() {
+		var dstr string
+		var da DayAccuracy
+		if err := rows.Scan(&dstr, &da.Correct, &da.Total); err != nil {
+			return nil, err
+		}
+		t, err := time.Parse("2006-01-02", dstr)
+		if err != nil {
+			continue
+		}
+		da.Date = t
+		out = append(out, da)
+	}
+	return out, rows.Err()
+}
+
 // LastNRatings returns the N most recent review ratings (time descending).
 // Used by the motivation picker to detect trailing-correct runs and recovery
 // from a lapse without re-computing it from the full reviews log.
@@ -1371,6 +1414,96 @@ func (s *Store) ApplyReview(
 	}
 
 	return tx.Commit()
+}
+
+// WordOfDay is one entry in the word_of_day table. ExampleChinese /
+// ExamplePinyin / ExampleEnglish are filled in asynchronously by an LLM
+// call after the row is inserted; empty strings until the goroutine
+// writes back.
+type WordOfDay struct {
+	Date           string
+	EntryID        int64
+	Chinese        string
+	Pinyin         string
+	English        string
+	ExampleChinese string
+	ExamplePinyin  string
+	ExampleEnglish string
+}
+
+// GetWordOfDay returns today's row or (nil, nil) when no row exists yet.
+func (s *Store) GetWordOfDay(ctx context.Context, date string) (*WordOfDay, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT date, COALESCE(entry_id, 0), chinese, pinyin, english,
+		        COALESCE(example_chinese, ''), COALESCE(example_pinyin, ''), COALESCE(example_english, '')
+		 FROM word_of_day WHERE date = ?`, date)
+	var w WordOfDay
+	if err := row.Scan(&w.Date, &w.EntryID, &w.Chinese, &w.Pinyin, &w.English,
+		&w.ExampleChinese, &w.ExamplePinyin, &w.ExampleEnglish); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get word_of_day: %w", err)
+	}
+	return &w, nil
+}
+
+// PickAndInsertWordOfDay picks a random word/phrase/verb entry (with an
+// English translation) as today's Word of the Day. Idempotent — if a row
+// already exists for `date`, returns it with insertedByUs=false. Only the
+// caller that actually inserted the row should fire the LLM example-gen
+// goroutine.
+func (s *Store) PickAndInsertWordOfDay(ctx context.Context, date string) (w *WordOfDay, insertedByUs bool, err error) {
+	if existing, err := s.GetWordOfDay(ctx, date); err != nil {
+		return nil, false, err
+	} else if existing != nil {
+		return existing, false, nil
+	}
+
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, chinese_raw, COALESCE(pinyin, ''), english
+		FROM entries
+		WHERE kind IN ('word', 'phrase', 'verb')
+		  AND english IS NOT NULL AND english != ''
+		ORDER BY RANDOM() LIMIT 1`)
+	var pick WordOfDay
+	pick.Date = date
+	if err := row.Scan(&pick.EntryID, &pick.Chinese, &pick.Pinyin, &pick.English); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, false, nil // empty deck
+		}
+		return nil, false, fmt.Errorf("pick wotd entry: %w", err)
+	}
+
+	res, err := s.db.ExecContext(ctx, `
+		INSERT INTO word_of_day (date, entry_id, chinese, pinyin, english)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(date) DO NOTHING`,
+		pick.Date, pick.EntryID, pick.Chinese, pick.Pinyin, pick.English)
+	if err != nil {
+		return nil, false, fmt.Errorf("insert wotd: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n > 0 {
+		return &pick, true, nil
+	}
+	// Lost the race — re-read whoever's row won.
+	winner, err := s.GetWordOfDay(ctx, date)
+	return winner, false, err
+}
+
+// UpdateWordOfDayExample writes the LLM-generated example sentence back
+// to today's row. Safe to call after the row has already been read.
+func (s *Store) UpdateWordOfDayExample(ctx context.Context, date, exChinese, exPinyin, exEnglish string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE word_of_day
+		   SET example_chinese = ?, example_pinyin = ?, example_english = ?
+		 WHERE date = ?`,
+		exChinese, exPinyin, exEnglish, date)
+	if err != nil {
+		return fmt.Errorf("update wotd example: %w", err)
+	}
+	return nil
 }
 
 // ChatMessage is one turn in the tutor-chat thread.

@@ -97,3 +97,71 @@ func (c *Client) Chat(ctx context.Context, history []ChatMessage) (string, error
 	}
 	return out, nil
 }
+
+const wordExamplePrompt = `Give a short example sentence for the Mandarin Chinese word %q. The learner is a complete beginner (A1 / HSK 1) — keep grammar and vocabulary simple.
+
+Reply with EXACTLY three lines, no preamble, no numbering, no code fences:
+Line 1: the Chinese sentence, 4-8 simplified hanzi
+Line 2: toned pinyin with tone marks (e.g. "nǐ hǎo")
+Line 3: an English translation
+
+Do not use present-perfect, complex aspect particles, or complements. Present tense subject + verb + object works best.`
+
+// WordExample generates a beginner-friendly example sentence for a single
+// Chinese word. Returns (chinese, pinyin, english). Used by the daily
+// Word-of-the-Day flow on the home page.
+func (c *Client) WordExample(ctx context.Context, chinese string) (chineseOut, pinyin, english string, err error) {
+	chinese = strings.TrimSpace(chinese)
+	if chinese == "" {
+		return "", "", "", fmt.Errorf("word example: empty input")
+	}
+	temp := float32(0.7) // a little warmth so we get variety day-to-day
+	cfg := &genai.GenerateContentConfig{
+		Temperature:     &temp,
+		MaxOutputTokens: 256,
+	}
+	prompt := fmt.Sprintf(wordExamplePrompt, chinese)
+
+	// Retry on transient 503/429 with same policy as the parse/chat paths.
+	var resp *genai.GenerateContentResponse
+	for attempt := 0; attempt < 3; attempt++ {
+		resp, err = c.sdk.Models.GenerateContent(ctx, c.model,
+			[]*genai.Content{genai.NewContentFromText(prompt, genai.RoleUser)},
+			cfg)
+		if err == nil {
+			break
+		}
+		if !isTransientGeminiError(err) {
+			return "", "", "", fmt.Errorf("gemini word example: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return "", "", "", ctx.Err()
+		case <-time.After(time.Duration(2+3*attempt) * time.Second):
+		}
+	}
+	if err != nil {
+		return "", "", "", fmt.Errorf("gemini word example (after retries): %w", err)
+	}
+
+	raw := strings.TrimSpace(resp.Text())
+	lines := make([]string, 0, 3)
+	for _, l := range strings.Split(raw, "\n") {
+		l = strings.TrimSpace(l)
+		// Strip common "1. " / "1) " / "- " prefixes the model sometimes adds.
+		l = strings.TrimPrefix(l, "- ")
+		l = strings.TrimPrefix(l, "* ")
+		for _, p := range []string{"1. ", "2. ", "3. ", "1) ", "2) ", "3) "} {
+			l = strings.TrimPrefix(l, p)
+		}
+		l = strings.TrimSpace(l)
+		if l == "" {
+			continue
+		}
+		lines = append(lines, l)
+	}
+	if len(lines) < 3 {
+		return "", "", "", fmt.Errorf("word example: got %d non-empty lines, want 3 (raw=%q)", len(lines), truncate(raw, 200))
+	}
+	return lines[0], lines[1], lines[2], nil
+}

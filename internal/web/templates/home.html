@@ -16,8 +16,51 @@
     </div>
 </div>
 
+{{if or .Trophies .NextTrophy}}
+<div class="trophy-shelf" aria-label="Review milestones">
+    {{range .Trophies}}
+    <span class="trophy" title="{{.Label}} unlocked">
+        <span class="trophy-icon">{{.Icon}}</span>
+        <span class="trophy-label">{{.Threshold}}</span>
+    </span>
+    {{end}}
+    {{if .NextTrophy}}
+    <span class="trophy trophy-next" title="Next milestone: {{.NextTrophy.Label}}">
+        <span class="trophy-icon">{{.NextTrophy.Icon}}</span>
+        <span class="trophy-label">next · {{.NextTrophy.Threshold}}</span>
+    </span>
+    {{end}}
+</div>
+{{end}}
+
 {{if .Motivation}}
 <p class="nudge nudge-{{.Motivation.Tone}}">{{.Motivation.Text}}</p>
+{{end}}
+
+{{if .WordOfDay}}
+<section class="wotd">
+    <h2>Word of the day</h2>
+    <div class="wotd-head">
+        <div class="wotd-hanzi">
+            <span>{{.WordOfDay.Chinese}}</span>
+            <button type="button" class="speak-btn" data-text="{{.WordOfDay.Chinese}}" aria-label="Speak">🔊</button>
+        </div>
+        <div class="wotd-pinyin">{{.WordOfDay.Pinyin}}</div>
+        <div class="wotd-english">{{.WordOfDay.English}}</div>
+    </div>
+    {{if .WordOfDay.ExampleChinese}}
+    <div class="wotd-example">
+        <div class="wotd-ex-chinese">
+            <span>{{.WordOfDay.ExampleChinese}}</span>
+            <button type="button" class="speak-btn speak-btn-inline" data-text="{{.WordOfDay.ExampleChinese}}" aria-label="Speak">🔊</button>
+        </div>
+        <div class="wotd-ex-pinyin">{{.WordOfDay.ExamplePinyin}}</div>
+        <div class="wotd-ex-english">{{.WordOfDay.ExampleEnglish}}</div>
+    </div>
+    {{else}}
+    <p class="wotd-example-pending muted">Example sentence is on its way — refresh in a few seconds.</p>
+    {{end}}
+</section>
 {{end}}
 
 <div class="actions">

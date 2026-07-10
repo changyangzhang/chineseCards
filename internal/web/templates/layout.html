@@ -8,6 +8,30 @@
     <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
 </head>
 <body>
+<script>
+    // Mandarin text-to-speech, shared across all pages that render a
+    // speaker button (review ribbon, choice icons, word-of-the-day).
+    // Uses the browser's Web Speech API — free, on-device — so nothing
+    // is ever sent to a server. Cloze blanks become natural pauses.
+    function speakChinese(text) {
+        if (!('speechSynthesis' in window) || !text) return;
+        speechSynthesis.cancel();
+        var cleaned = text.replace(/_+/g, ', ');
+        var utter = new SpeechSynthesisUtterance(cleaned);
+        utter.lang = 'zh-CN';
+        utter.rate = 0.9;
+        speechSynthesis.speak(utter);
+    }
+    // Delegate speaker-button clicks so any element with .speak-btn or
+    // .speak-icon (and a data-text attribute) plays automatically.
+    document.addEventListener('click', function (e) {
+        var trigger = e.target.closest('.speak-btn, .speak-icon');
+        if (!trigger) return;
+        e.preventDefault();
+        e.stopPropagation();
+        speakChinese(trigger.dataset.text);
+    }, true);
+</script>
 <header>
     <nav>
         <a href="/" class="brand">🇨🇳 Chinese Cards</a>

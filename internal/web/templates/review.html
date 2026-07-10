@@ -6,6 +6,8 @@
 
 <script>
     // Keyboard 1-4 picks choices in MC mode; Enter submits in fill-in mode.
+    // (speakChinese + speaker-button delegation live in layout.html so they
+    // work on every page, not just /review.)
     document.addEventListener('keydown', function (e) {
         const tag = e.target.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA') return;
@@ -20,29 +22,6 @@
             }
         }
     });
-
-    // ---- Mandarin text-to-speech (Web Speech API; free, browser-native) ----
-    function speakChinese(text) {
-        if (!('speechSynthesis' in window) || !text) return;
-        // Cancel anything in flight so back-to-back clicks don't queue up.
-        speechSynthesis.cancel();
-        // Cloze placeholders should be heard as a pause, not "underscore".
-        const cleaned = text.replace(/_+/g, ', ');
-        const utter = new SpeechSynthesisUtterance(cleaned);
-        utter.lang = 'zh-CN';
-        utter.rate = 0.9;
-        speechSynthesis.speak(utter);
-    }
-    // Capture-phase delegation: runs BEFORE the click bubbles to the choice
-    // button / form, so calling preventDefault here safely cancels the form
-    // submission when the user taps the speaker on a submit button.
-    document.addEventListener('click', function (e) {
-        const trigger = e.target.closest('.speak-btn, .speak-icon');
-        if (!trigger) return;
-        e.preventDefault();
-        e.stopPropagation();
-        speakChinese(trigger.dataset.text);
-    }, true);
 </script>
 {{end}}
 

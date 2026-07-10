@@ -2,11 +2,13 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"math/rand/v2"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"chineseCards/internal/store"
 )
@@ -28,6 +30,7 @@ const (
 	toneWarm      = "warm"
 	toneRest      = "rest"
 	toneHome      = "home"
+	tonePB        = "pb" // personal best
 )
 
 // nudgePool holds copy. Keep lines short, warm, gently encouraging — no
@@ -107,18 +110,38 @@ var nudgePool = map[string][]string{
 		"Welcome back. Take your time.",
 		"Small steps, every day. You've got this.",
 	},
+	"pbToday": {
+		"Personal best — today's accuracy is your highest in a month. Take a moment with that.",
+		"Best accuracy in 30 days. You're really hitting your stride.",
+		"That was clean. Today's accuracy is your best of the month so far — enjoy it.",
+	},
 }
 
-// motivator holds picker state: a process-local debounce timestamp and a
+// motivator holds picker state: a process-local debounce timestamp, a
 // per-pool "last index served" memory so the same line never appears twice
-// in a row.
+// in a row, and a "last date we fired the personal-best nudge" watermark
+// so it fires at most once per calendar day.
 type motivator struct {
 	mu         sync.Mutex
 	lastShown  time.Time
 	lastByPool map[string]int
+	pbFiredOn  string // YYYY-MM-DD of the most recent personal-best nudge
 }
 
 var nudger = &motivator{lastByPool: map[string]int{}}
+
+// tryClaimPBToday returns true iff the personal-best nudge hasn't fired
+// yet on `today`. Idempotent — the second caller in the same day gets
+// false.
+func (m *motivator) tryClaimPBToday(today string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.pbFiredOn == today {
+		return false
+	}
+	m.pbFiredOn = today
+	return true
+}
 
 // serve unconditionally picks a line from `pool`. Used for milestone-grade
 // triggers that should bypass the random/debounce gate.
@@ -224,9 +247,12 @@ func trailingCorrects(ratings []int, from int) int {
 // then asks the motivator to serve a line (with debounce on the random
 // sprinkle, no debounce on real milestones).
 //
+// `username` is used to personalise the first-card-of-day greeting when
+// available (BASIC_USER); pass "" to keep it generic.
+//
 // Errors are swallowed deliberately — a nudge is a nice-to-have, never a
 // reason to fail a request.
-func pickReviewNudge(ctx context.Context, st *store.Store, justGradedCorrect bool) *Nudge {
+func pickReviewNudge(ctx context.Context, st *store.Store, justGradedCorrect bool, username string) *Nudge {
 	count, err := st.CountReviewsToday(ctx)
 	if err != nil {
 		return nil
@@ -242,6 +268,18 @@ func pickReviewNudge(ctx context.Context, st *store.Store, justGradedCorrect boo
 		streak, _ = computeStreak(dates)
 	}
 
+	// Personal-best-today: fires at most once per day, on a correct pick,
+	// once the learner has both enough data today AND some history to
+	// compare against. Detected here (not in decideReviewNudge) because
+	// it needs a DB query the pure decision function shouldn't own.
+	if justGradedCorrect && shouldFirePersonalBest(ctx, st, count) {
+		today := time.Now().Format("2006-01-02")
+		if nudger.tryClaimPBToday(today) {
+			n, _ := nudger.serve("pbToday", tonePB)
+			return n
+		}
+	}
+
 	pool, tone, ok := decideReviewNudge(reviewNudgeInput{
 		JustGradedCorrect: justGradedCorrect,
 		ReviewsTodayAfter: count,
@@ -253,6 +291,19 @@ func pickReviewNudge(ctx context.Context, st *store.Store, justGradedCorrect boo
 		return nil
 	}
 
+	// Personalise the first-card-of-day greeting instead of pulling a stock
+	// line from the pool. Feels less templated — "Morning, Joakim. Day 8 in
+	// a row" beats "Hey :) good to see you back."
+	if pool == "welcome" {
+		nudger.mu.Lock()
+		nudger.lastShown = time.Now()
+		nudger.mu.Unlock()
+		return &Nudge{
+			Text: firstCardGreeting(username, streak, time.Now()),
+			Tone: tone,
+		}
+	}
+
 	// Real milestones bypass the debounce; random sprinkle honors it.
 	if pool == "warm" {
 		n, _ := nudger.serveDebounced(pool, tone, 30*time.Second)
@@ -260,6 +311,102 @@ func pickReviewNudge(ctx context.Context, st *store.Store, justGradedCorrect boo
 	}
 	n, _ := nudger.serve(pool, tone)
 	return n
+}
+
+// shouldFirePersonalBest returns true when today's accuracy beats every
+// other day in the trailing 30-day window. Guarded by minimum-sample-size
+// rules so a single lucky answer at review #2 doesn't crown a PB.
+//
+// Rules:
+//   - Need at least MinToday reviews today (so the number is meaningful).
+//   - Need at least MinPriorDays qualifying prior days with MinPriorReviews
+//     each (so there's real context to beat).
+//   - Today's accuracy must be STRICTLY greater than the best prior day's.
+func shouldFirePersonalBest(ctx context.Context, st *store.Store, countToday int) bool {
+	const (
+		minToday        = 5
+		minPriorReviews = 5
+		minPriorDays    = 3
+	)
+	if countToday < minToday {
+		return false
+	}
+	days, err := st.AccuracyByDay(ctx, 30)
+	if err != nil || len(days) == 0 {
+		return false
+	}
+	todayStr := time.Now().Format("2006-01-02")
+	var todayAcc float64 = -1
+	var bestPrior float64 = -1
+	priorQualifying := 0
+	for _, d := range days {
+		if d.Total == 0 {
+			continue
+		}
+		acc := float64(d.Correct) / float64(d.Total)
+		if d.Date.Format("2006-01-02") == todayStr {
+			todayAcc = acc
+			continue
+		}
+		if d.Total >= minPriorReviews {
+			priorQualifying++
+			if acc > bestPrior {
+				bestPrior = acc
+			}
+		}
+	}
+	if todayAcc < 0 || priorQualifying < minPriorDays {
+		return false
+	}
+	return todayAcc > bestPrior
+}
+
+// firstCardGreeting builds a personal opening line for the first card of the
+// day. Time-of-day + name + streak get woven in; missing pieces gracefully
+// degrade to a shorter warm line.
+func firstCardGreeting(username string, streak int, now time.Time) string {
+	tod := timeOfDayGreeting(now)
+	name := displayName(username)
+	comma := ""
+	if name != "" {
+		comma = ", " + name
+	}
+	switch {
+	case streak >= 2:
+		return fmt.Sprintf("%s%s. Day %d in a row 🌱", tod, comma, streak)
+	case streak == 1:
+		return fmt.Sprintf("%s%s. Fresh start today.", tod, comma)
+	default:
+		return fmt.Sprintf("%s%s. Nice to see you.", tod, comma)
+	}
+}
+
+// timeOfDayGreeting maps the local hour to a natural greeting.
+func timeOfDayGreeting(now time.Time) string {
+	switch h := now.Hour(); {
+	case h < 5:
+		return "Late-night session"
+	case h < 12:
+		return "Morning"
+	case h < 17:
+		return "Afternoon"
+	case h < 22:
+		return "Evening"
+	default:
+		return "Night owl"
+	}
+}
+
+// displayName returns the username title-cased for the greeting, or "" when
+// there's nothing worth showing (empty, obvious dev placeholder, only-digits).
+func displayName(u string) string {
+	u = strings.TrimSpace(u)
+	if u == "" || strings.EqualFold(u, "me") || strings.EqualFold(u, "admin") || strings.EqualFold(u, "user") {
+		return ""
+	}
+	r := []rune(u)
+	r[0] = unicode.ToUpper(r[0])
+	return string(r)
 }
 
 // pickEmptyStateNudge returns a warm sign-off for the daily-done empty state.

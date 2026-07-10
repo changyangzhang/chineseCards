@@ -606,6 +606,178 @@ table.cards tr:last-child td { border-bottom: none; }
     transition: width 300ms ease;
 }
 
+/* ---- Word of the day on /home ---- */
+.wotd {
+    margin: 1.5rem 0;
+    padding: 1.25rem 1.5rem;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: 10px;
+}
+.wotd h2 {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    font-weight: 600;
+    margin: 0 0 0.9rem 0;
+}
+.wotd-head {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    margin-bottom: 1rem;
+}
+.wotd-hanzi {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 2rem;
+    font-weight: 600;
+    line-height: 1.2;
+}
+.wotd-pinyin {
+    color: var(--muted);
+    font-size: 1rem;
+    letter-spacing: 0.02em;
+}
+.wotd-english {
+    color: var(--fg);
+    font-size: 1rem;
+}
+
+.wotd-example {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px dashed var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+.wotd-ex-chinese {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1.15rem;
+    font-weight: 500;
+}
+.wotd-ex-pinyin {
+    color: var(--muted);
+    font-size: 0.88rem;
+}
+.wotd-ex-english {
+    color: var(--fg);
+    font-size: 0.95rem;
+    font-style: italic;
+}
+.wotd-example-pending {
+    font-size: 0.85rem;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px dashed var(--border);
+}
+
+.speak-btn-inline {
+    font-size: 0.9rem;
+    padding: 0.1rem 0.3rem;
+}
+
+/* ---- Trophy shelf on /home ---- */
+.trophy-shelf {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin: 1rem 0 0.75rem;
+}
+.trophy {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.25rem 0.65rem;
+    border-radius: 999px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    font-size: 0.85rem;
+    color: var(--fg);
+    cursor: default;
+}
+.trophy-icon { font-size: 1rem; line-height: 1; }
+.trophy-label {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.78rem;
+    color: var(--muted);
+}
+.trophy-next {
+    opacity: 0.55;
+    border-style: dashed;
+}
+.trophy-next .trophy-icon { filter: grayscale(0.6); }
+
+/* ---- Six-month contribution heatmap on /stats ---- */
+.contrib-wrap {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+.contrib {
+    display: block;
+    min-width: 360px;
+    max-width: 100%;
+    height: auto;
+}
+.contrib-month {
+    fill: var(--muted);
+    font-size: 9px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+.contrib-cell {
+    transition: filter 0.15s;
+}
+.contrib-cell:hover { filter: brightness(1.15); cursor: help; }
+
+/* Five shading buckets. Level 0 uses --border (empty day), 1-4 blend
+   from a pale tint toward the accent. Same hues in dark mode, just
+   inverted for legibility. */
+.contrib-l0 { fill: var(--border); }
+.contrib-l1 { fill: #cfe4f2; }
+.contrib-l2 { fill: #7cbadd; }
+.contrib-l3 { fill: #2f8fc8; }
+.contrib-l4 { fill: #005c93; }
+@media (prefers-color-scheme: dark) {
+    .contrib-l1 { fill: #16344a; }
+    .contrib-l2 { fill: #1e567c; }
+    .contrib-l3 { fill: #3c8ec4; }
+    .contrib-l4 { fill: #8dc9ea; }
+}
+
+.contrib-legend {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-top: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--muted);
+}
+.contrib-swatch {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+}
+.contrib-swatch.contrib-l0 { background: var(--border); }
+.contrib-swatch.contrib-l1 { background: #cfe4f2; }
+.contrib-swatch.contrib-l2 { background: #7cbadd; }
+.contrib-swatch.contrib-l3 { background: #2f8fc8; }
+.contrib-swatch.contrib-l4 { background: #005c93; }
+@media (prefers-color-scheme: dark) {
+    .contrib-swatch.contrib-l1 { background: #16344a; }
+    .contrib-swatch.contrib-l2 { background: #1e567c; }
+    .contrib-swatch.contrib-l3 { background: #3c8ec4; }
+    .contrib-swatch.contrib-l4 { background: #8dc9ea; }
+}
+
 .quiz-form { margin: 0; }
 
 /* Swedish text-to-speech buttons (Web Speech API) */

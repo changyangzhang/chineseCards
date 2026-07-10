@@ -69,7 +69,41 @@ type homeData struct {
 	TotalCount int
 	LLMEnabled bool
 	LLMModel   string
-	Motivation *Nudge // optional sweet line under today's stats
+	Motivation *Nudge            // optional sweet line under today's stats
+	Trophies   []trophy          // milestones at 30 / 100 / 500 / 1000 / 5000 reviews
+	NextTrophy *trophy           // ghost preview of the next unreached milestone
+	WordOfDay  *store.WordOfDay  // today's featured word, or nil when the deck is empty
+}
+
+// trophy is a lifetime-review milestone shown as a chip on the home page.
+type trophy struct {
+	Icon      string
+	Threshold int
+	Label     string // e.g. "30 reviews"
+	Reached   bool
+}
+
+// trophiesFor returns the milestones the learner has crossed, plus the next
+// unreached one as a "so close" preview. Empty when total is 0.
+func trophiesFor(total int) (reached []trophy, next *trophy) {
+	all := []trophy{
+		{Icon: "🏅", Threshold: 30, Label: "30 reviews"},
+		{Icon: "🏆", Threshold: 100, Label: "100 reviews"},
+		{Icon: "💎", Threshold: 500, Label: "500 reviews"},
+		{Icon: "🌟", Threshold: 1000, Label: "1000 reviews"},
+		{Icon: "🐉", Threshold: 5000, Label: "5000 reviews"},
+	}
+	for i, t := range all {
+		if total >= t.Threshold {
+			t.Reached = true
+			reached = append(reached, t)
+			continue
+		}
+		// First unreached — surface as the ghost preview and stop.
+		nxt := all[i]
+		return reached, &nxt
+	}
+	return reached, nil
 }
 
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
@@ -79,6 +113,8 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	total, _ := s.store.CountCards(ctx)
 	// Total reviews-ever for home-nudge phrasing — cheap aggregate, ignore err.
 	_, totalReviews, _ := s.store.ReviewAccuracy(ctx)
+	reached, next := trophiesFor(totalReviews)
+	wotd := s.pickWordOfDay(ctx)
 	s.renderer.Render(w, "home", homeData{
 		DueCount:   due,
 		NewCount:   new_,
@@ -86,7 +122,55 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		LLMEnabled: s.cfg.GeminiAPIKey != "",
 		LLMModel:   s.cfg.GeminiModel,
 		Motivation: pickHomeNudge(ctx, s.store, totalReviews),
+		Trophies:   reached,
+		NextTrophy: next,
+		WordOfDay:  wotd,
 	})
+}
+
+// pickWordOfDay fetches today's Word of the Day, creating the row on the
+// first visit each day. When the row is fresh and Gemini is configured,
+// kicks off a background goroutine to generate a beginner-friendly example
+// sentence; the sentence appears on subsequent page loads.
+//
+// If the entry we pick has no DB-stored pinyin (heuristic-imported), we
+// fill it in via the offline library so the home page always shows pinyin.
+func (s *Server) pickWordOfDay(ctx context.Context) *store.WordOfDay {
+	today := time.Now().Format("2006-01-02")
+	w, insertedByUs, err := s.store.PickAndInsertWordOfDay(ctx, today)
+	if err != nil {
+		slog.Warn("word of day pick", "err", err)
+		return nil
+	}
+	if w == nil {
+		return nil // empty deck
+	}
+	if w.Pinyin == "" {
+		w.Pinyin = pinyinFor(w.Chinese)
+	}
+	if insertedByUs && s.llm != nil && w.ExampleChinese == "" {
+		// Detached goroutine: uses a fresh context so it survives the
+		// current request finishing. Errors are logged and swallowed.
+		go s.generateWordOfDayExample(today, w.Chinese)
+	}
+	return w
+}
+
+// generateWordOfDayExample runs the LLM call for today's WOTD and writes
+// the result back. Called from a goroutine kicked off inside pickWordOfDay;
+// safe to run concurrently with the home-page render because the update
+// only touches the example_* columns.
+func (s *Server) generateWordOfDayExample(date, chinese string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	exCh, exPy, exEng, err := s.llm.WordExample(ctx, chinese)
+	if err != nil {
+		slog.Warn("wotd example generate", "err", err, "chinese", chinese)
+		return
+	}
+	if err := s.store.UpdateWordOfDayExample(ctx, date, exCh, exPy, exEng); err != nil {
+		slog.Warn("wotd example write", "err", err, "date", date)
+	}
 }
 
 type importSummary struct {
@@ -1215,7 +1299,7 @@ func (s *Server) handleReviewPost(w http.ResponseWriter, r *http.Request) {
 	if last.IsCloze {
 		last.Filled = strings.Replace(frontShown, "____", correct, 1)
 	}
-	last.Motivation = pickReviewNudge(ctx, s.store, wasCorrect)
+	last.Motivation = pickReviewNudge(ctx, s.store, wasCorrect, s.cfg.BasicUser)
 
 	next, isRetry, err := s.nextCardForReview(ctx)
 	if err != nil {
@@ -1268,6 +1352,139 @@ type statsData struct {
 	DueChart        chartData
 	ReviewsTotal30d int
 	DueTotal14d     int
+
+	Contrib contribGrid // 6-month GitHub-style heatmap of daily activity
+}
+
+// contribCell is one square on the contribution grid.
+type contribCell struct {
+	Date  time.Time
+	Count int
+	Level int // 0-4, drives CSS colour bucket
+	X     int
+	Y     int
+	Label string // for the SVG <title> tooltip
+}
+
+// contribMonthLabel is a month name drawn above the first week of that month.
+type contribMonthLabel struct {
+	Label string
+	X     int
+}
+
+// contribGrid is what the stats template consumes to draw the heatmap.
+type contribGrid struct {
+	Cells       []contribCell
+	Months      []contribMonthLabel
+	Weeks       int
+	CellSize    int // px per square
+	Gap         int // px between squares
+	Width       int // total svg width
+	Height      int // total svg height (grid only, excludes labels)
+	TotalHeight int // including the month labels row
+	Total       int // total reviews in range
+	Days        int // days spanned
+}
+
+// buildContribGrid arranges the last `weeks*7` days into a 7×weeks matrix
+// with Monday on the top row. The rightmost column ends today; empty
+// squares fill any days after today in the current week. Counts come from
+// ReviewsByDay; days with zero reviews get level 0.
+func buildContribGrid(now time.Time, rows []store.DayCount) contribGrid {
+	const (
+		cellSize = 12
+		gap      = 2
+		weeks    = 26
+		labelPad = 14 // room for month labels above the grid
+	)
+
+	// Look up counts by date string for O(1) merge.
+	byDate := make(map[string]int, len(rows))
+	total := 0
+	for _, r := range rows {
+		byDate[r.Date.Format("2006-01-02")] = r.Count
+	}
+
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	todayRow := int(today.Weekday()+6) % 7 // 0=Mon, 6=Sun
+	// firstDay = the earliest cell in the top-left corner: `weeks-1` weeks
+	// back plus enough to land on a Monday.
+	firstDay := today.AddDate(0, 0, -((weeks-1)*7 + todayRow))
+
+	cells := make([]contribCell, 0, weeks*7)
+	var months []contribMonthLabel
+	lastMonth := time.Month(0)
+	for col := 0; col < weeks; col++ {
+		colStart := firstDay.AddDate(0, 0, col*7)
+		if colStart.Month() != lastMonth {
+			// Only draw a label if this column starts in the first week of
+			// the month (avoids duplicate labels from mid-month rollovers).
+			if col == 0 || colStart.Day() <= 7 {
+				months = append(months, contribMonthLabel{
+					Label: colStart.Format("Jan"),
+					X:     col * (cellSize + gap),
+				})
+			}
+			lastMonth = colStart.Month()
+		}
+		for row := 0; row < 7; row++ {
+			day := firstDay.AddDate(0, 0, col*7+row)
+			if day.After(today) {
+				continue // don't draw future squares
+			}
+			key := day.Format("2006-01-02")
+			count := byDate[key]
+			total += count
+			cells = append(cells, contribCell{
+				Date:  day,
+				Count: count,
+				Level: contribLevel(count),
+				X:     col * (cellSize + gap),
+				Y:     row * (cellSize + gap),
+				Label: fmt.Sprintf("%s — %d review%s", day.Format("Mon 2 Jan"), count, plural(count)),
+			})
+		}
+	}
+
+	width := weeks*(cellSize+gap) - gap
+	height := 7*(cellSize+gap) - gap
+	return contribGrid{
+		Cells:       cells,
+		Months:      months,
+		Weeks:       weeks,
+		CellSize:    cellSize,
+		Gap:         gap,
+		Width:       width,
+		Height:      height,
+		TotalHeight: height + labelPad,
+		Total:       total,
+		Days:        weeks * 7,
+	}
+}
+
+// contribLevel maps a raw daily count to a 0-4 shading bucket. Thresholds
+// tuned for a personal deck: hitting 20+ in a day is exceptional and gets
+// the darkest shade.
+func contribLevel(count int) int {
+	switch {
+	case count <= 0:
+		return 0
+	case count <= 2:
+		return 1
+	case count <= 5:
+		return 2
+	case count <= 10:
+		return 3
+	default:
+		return 4
+	}
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
@@ -1278,7 +1495,8 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	reviews, _ := s.store.ReviewsByDay(ctx, 30)
 	dueRows, _ := s.store.DueByDay(ctx, 14)
 	accuracy, total, _ := s.store.ReviewAccuracy(ctx)
-	dates, _ := s.store.ReviewDatesDesc(ctx, 90)
+	dates, _ := s.store.ReviewDatesDesc(ctx, 200)
+	contribRows, _ := s.store.ReviewsByDay(ctx, 26*7) // 6 months for the heatmap
 
 	streak, lastReview := computeStreak(dates)
 
@@ -1294,6 +1512,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		DueChart:        dueChart,
 		ReviewsTotal30d: sumBars(reviewsChart.Bars),
 		DueTotal14d:     sumBars(dueChart.Bars),
+		Contrib:         buildContribGrid(now, contribRows),
 	}
 	if !lastReview.IsZero() {
 		data.LastReview = lastReview.Format("2006-01-02")

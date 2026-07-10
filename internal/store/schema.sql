@@ -70,3 +70,18 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_chat_messages_id ON chat_messages(id);
+
+-- One row per calendar day, populated on the first home-page visit each
+-- day. Basic fields land immediately from the picked entry; the LLM-
+-- generated example is filled in by a background goroutine.
+CREATE TABLE IF NOT EXISTS word_of_day (
+    date TEXT PRIMARY KEY,
+    entry_id INTEGER,
+    chinese TEXT NOT NULL,
+    pinyin TEXT NOT NULL DEFAULT '',
+    english TEXT NOT NULL,
+    example_chinese TEXT,
+    example_pinyin TEXT,
+    example_english TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
