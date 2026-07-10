@@ -48,8 +48,24 @@
 
 {{define "card-area"}}
 <div id="card-area" class="card-area">
+    {{if .Progress}}
+    <div class="progress" role="progressbar"
+         aria-valuenow="{{.Progress.Done}}" aria-valuemin="0" aria-valuemax="{{.Progress.Total}}"
+         aria-label="Today's review progress">
+        <div class="progress-count">{{.Progress.Done}} / {{.Progress.Total}} <span class="progress-label">today</span></div>
+        <div class="progress-track">
+            <div class="progress-fill" style="width: {{.Progress.Pct}}%"></div>
+        </div>
+    </div>
+    {{end}}
+
     {{if .Last}}
-    <div class="result-ribbon {{if .Last.WasCorrect}}correct{{else}}wrong{{end}}">
+    {{/* autospeak carries the Chinese-side text to play after each answer:
+         cloze -> the fully-filled sentence, reverse -> the correct Chinese,
+         forward -> the Chinese front. The inline <script> a few lines down
+         fires speakChinese() on every HTMX swap and initial render. */}}
+    <div class="result-ribbon {{if .Last.WasCorrect}}correct{{else}}wrong{{end}}"
+         data-autospeak="{{if .Last.IsCloze}}{{.Last.Filled}}{{else if .Last.IsReverse}}{{.Last.Correct}}{{else}}{{.Last.Front}}{{end}}">
         <span class="ribbon-icon">{{if .Last.WasCorrect}}✓{{else}}✗{{end}}</span>
         {{if .Last.IsCloze}}
             <span class="ribbon-body">{{.Last.Filled}}</span>
@@ -71,6 +87,21 @@
     {{if .Last.Motivation}}
     <div class="nudge nudge-{{.Last.Motivation.Tone}}">{{.Last.Motivation.Text}}</div>
     {{end}}
+    <script>
+        // Auto-speak the Chinese side of the previous answer after each swap.
+        // Runs inline: HTMX evaluates <script> tags in swapped content by
+        // default, and the same script runs on initial page load. We strip
+        // the attribute after firing so a stray re-render can't double-play.
+        (function () {
+            var el = document.querySelector('.result-ribbon[data-autospeak]');
+            if (!el) return;
+            var text = el.getAttribute('data-autospeak');
+            el.removeAttribute('data-autospeak');
+            if (text && typeof speakChinese === 'function') {
+                speakChinese(text);
+            }
+        })();
+    </script>
     {{end}}
 
     {{if .Card}}

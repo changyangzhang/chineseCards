@@ -356,7 +356,7 @@ func (s *Server) handleReviewDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "store error", http.StatusInternalServerError)
 		return
 	}
-	data := quizData{Card: q}
+	data := quizData{Card: q, Progress: s.buildQuizProgress(ctx)}
 	if q == nil {
 		data.Empty = s.buildEmptyState(ctx)
 	}
@@ -888,9 +888,42 @@ type emptyState struct {
 }
 
 type quizData struct {
-	Card  *quizCard
-	Last  *lastResult
-	Empty *emptyState
+	Card     *quizCard
+	Last     *lastResult
+	Empty    *emptyState
+	Progress *quizProgress
+}
+
+// quizProgress powers the "3/20" counter and progress bar shown above every
+// review card. Done counts today's correct SRS reviews (retry misses don't
+// add here — they don't insert review rows). Pct is 0..100 for the CSS width.
+type quizProgress struct {
+	Done  int
+	Total int
+	Pct   int
+}
+
+// buildQuizProgress reads today's review count + the current daily target
+// and returns nil when there's nothing worth showing (target unset).
+// Called on every render/swap so the bar stays in sync with the card the
+// user is looking at.
+func (s *Server) buildQuizProgress(ctx context.Context) *quizProgress {
+	target := s.dailyTarget(ctx)
+	if target <= 0 {
+		return nil
+	}
+	done, err := s.store.CountReviewsToday(ctx)
+	if err != nil {
+		return &quizProgress{Done: 0, Total: target}
+	}
+	pct := 0
+	if target > 0 {
+		pct = (done * 100) / target
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	return &quizProgress{Done: done, Total: target, Pct: pct}
 }
 
 func (s *Server) prepareQuizCard(ctx context.Context, card *store.ReviewCard) (*quizCard, error) {
@@ -1037,7 +1070,7 @@ func (s *Server) handleReview(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "store error", http.StatusInternalServerError)
 		return
 	}
-	data := quizData{Card: q}
+	data := quizData{Card: q, Progress: s.buildQuizProgress(ctx)}
 	if q == nil {
 		data.Empty = s.buildEmptyState(ctx)
 	}
@@ -1199,7 +1232,7 @@ func (s *Server) handleReviewPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "store error", http.StatusInternalServerError)
 		return
 	}
-	data := quizData{Card: q, Last: last}
+	data := quizData{Card: q, Last: last, Progress: s.buildQuizProgress(ctx)}
 	if q == nil {
 		data.Empty = s.buildEmptyState(ctx)
 	}
