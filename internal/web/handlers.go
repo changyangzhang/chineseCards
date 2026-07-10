@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -29,10 +30,22 @@ type Server struct {
 	renderer *Renderer
 	llm      *llm.Client // nil if no API key
 	retry    *retryQueue // in-session "get it right before moving on" queue
+
+	// wotdInflight tracks which dates already have an example-generation
+	// goroutine running in this process. Prevents duplicate LLM calls
+	// when the user reloads the home page repeatedly while today's row
+	// still has an empty example (e.g. right after a server restart that
+	// dropped the previous goroutine).
+	wotdMu       sync.Mutex
+	wotdInflight map[string]bool
 }
 
 func NewServer(cfg config.Config, st *store.Store, r *Renderer, lc *llm.Client) *Server {
-	return &Server{cfg: cfg, store: st, renderer: r, llm: lc, retry: &retryQueue{}}
+	return &Server{
+		cfg: cfg, store: st, renderer: r, llm: lc,
+		retry:        &retryQueue{},
+		wotdInflight: map[string]bool{},
+	}
 }
 
 // nextCardForReview picks the next card to show. Normal SRS queue first
@@ -148,19 +161,46 @@ func (s *Server) pickWordOfDay(ctx context.Context) *store.WordOfDay {
 	if w.Pinyin == "" {
 		w.Pinyin = pinyinFor(w.Chinese)
 	}
-	if insertedByUs && s.llm != nil && w.ExampleChinese == "" {
-		// Detached goroutine: uses a fresh context so it survives the
-		// current request finishing. Errors are logged and swallowed.
-		go s.generateWordOfDayExample(today, w.Chinese)
+	// Fire the example-gen goroutine whenever the row's example is missing
+	// AND no one else is already working on it. Recovers cleanly after a
+	// server restart that dropped a mid-flight goroutine — we don't hinge
+	// on `insertedByUs` any more, that only helped the very first visit.
+	_ = insertedByUs
+	if s.llm != nil && w.ExampleChinese == "" {
+		if s.claimWOTDInflight(today) {
+			go s.generateWordOfDayExample(today, w.Chinese)
+		}
 	}
 	return w
+}
+
+// claimWOTDInflight is a compare-and-set on the in-flight map: returns
+// true iff no example-gen goroutine is currently running for `date`.
+// Winning callers should schedule the goroutine and release the slot
+// (via releaseWOTDInflight) once it completes.
+func (s *Server) claimWOTDInflight(date string) bool {
+	s.wotdMu.Lock()
+	defer s.wotdMu.Unlock()
+	if s.wotdInflight[date] {
+		return false
+	}
+	s.wotdInflight[date] = true
+	return true
+}
+
+func (s *Server) releaseWOTDInflight(date string) {
+	s.wotdMu.Lock()
+	defer s.wotdMu.Unlock()
+	delete(s.wotdInflight, date)
 }
 
 // generateWordOfDayExample runs the LLM call for today's WOTD and writes
 // the result back. Called from a goroutine kicked off inside pickWordOfDay;
 // safe to run concurrently with the home-page render because the update
-// only touches the example_* columns.
+// only touches the example_* columns. Releases the in-flight slot on exit
+// so a later retry can fire if the LLM call errored.
 func (s *Server) generateWordOfDayExample(date, chinese string) {
+	defer s.releaseWOTDInflight(date)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	exCh, exPy, exEng, err := s.llm.WordExample(ctx, chinese)
