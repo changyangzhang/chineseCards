@@ -26,7 +26,7 @@
     <h2>About</h2>
     <p class="muted">
         AI enrichment:
-        {{if .LLMEnabled}}<strong>enabled</strong> ({{.LLMModel}}){{else}}disabled — set <code>GEMINI_API_KEY</code> in <code>.env</code>{{end}}.
+        {{if .LLMEnabled}}<strong>enabled</strong> ({{.LLMModel}}){{else}}disabled — set <code>OPENAI_API_KEY</code> in <code>.env</code>{{end}}.
     </p>
     <p class="muted">
         <code>NEW_PER_DAY</code> in <code>.env</code> seeds this value on first run only.

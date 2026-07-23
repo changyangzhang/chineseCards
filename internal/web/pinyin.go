@@ -71,7 +71,7 @@ func isSingleRuneNonHanzi(s string) bool {
 
 // pinyinOr returns `existing` when it's non-empty, otherwise computes
 // pinyin for `text` on the fly. Used to surface pinyin even on entries
-// that pre-date LLM enrichment (no Gemini key when imported).
+// that pre-date LLM enrichment (no LLM key when imported).
 func pinyinOr(existing, text string) string {
 	if existing != "" {
 		return existing

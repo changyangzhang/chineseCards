@@ -31,12 +31,12 @@
 {{end}}
 
 <form method="post" action="/import" enctype="multipart/form-data" class="import-form">
-    <p>Paste lesson notes below — or upload an image, PDF, or .txt of your notes and Gemini will read it for you.</p>
+    <p>Paste lesson notes below — or upload an image or .txt of your notes and the AI will read it for you.</p>
 
     <label class="file-upload">
-        <span class="file-upload-label">📎 Upload image / PDF / text file</span>
-        <input type="file" name="file" accept="image/*,application/pdf,text/plain,.txt,.md">
-        <small class="muted">Photos of handwritten notes work too. Max 8 MB. Requires <code>GEMINI_API_KEY</code>.</small>
+        <span class="file-upload-label">📎 Upload image or text file</span>
+        <input type="file" name="file" accept="image/*,text/plain,.txt,.md">
+        <small class="muted">Photos of handwritten notes work too. Max 8 MB. Requires <code>OPENAI_API_KEY</code>.</small>
     </label>
 
     <p class="hint muted">— or paste text below —</p>

@@ -58,7 +58,7 @@ func (s *Server) handleChatPost(w http.ResponseWriter, r *http.Request) {
 		messages, _ := s.store.ListChatMessages(ctx)
 		s.renderer.RenderPartial(w, "chat", "chat-thread", chatPartialData{
 			Messages:  messages,
-			ErrorText: "Chat needs GEMINI_API_KEY set in .env to run.",
+			ErrorText: "Chat needs OPENAI_API_KEY set in .env to run.",
 		})
 		return
 	}

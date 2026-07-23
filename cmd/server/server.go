@@ -47,8 +47,8 @@ func Run() error {
 	}
 
 	var llmClient *llm.Client
-	if cfg.GeminiAPIKey != "" {
-		llmClient, err = llm.NewClient(context.Background(), cfg.GeminiAPIKey, cfg.GeminiModel, llm.Options{})
+	if cfg.OpenAIAPIKey != "" {
+		llmClient, err = llm.NewClient(context.Background(), cfg.OpenAIAPIKey, cfg.OpenAIModel, llm.Options{})
 		if err != nil {
 			slog.Warn("LLM disabled: failed to init client", "err", err)
 			llmClient = nil
@@ -72,7 +72,7 @@ func Run() error {
 	}
 
 	go func() {
-		slog.Info("listening", "addr", cfg.HTTPAddr, "db", cfg.DBPath, "llm_enabled", cfg.GeminiAPIKey != "")
+		slog.Info("listening", "addr", cfg.HTTPAddr, "db", cfg.DBPath, "llm_enabled", cfg.OpenAIAPIKey != "")
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("listen", "err", err)
 			os.Exit(1)
@@ -105,7 +105,7 @@ func pruneCards(ctx context.Context, st *store.Store) error {
 // backfillCards regenerates cards for every stored entry. Card inserts are
 // hash-deduped, so this is a no-op for entries whose cards already exist; it
 // adds the cards that are now possible thanks to newer generation rules
-// (e.g. cloze cards added in M3, or refreshed cards once Gemini fills in
+// (e.g. cloze cards added in M3, or refreshed cards once the LLM fills in
 // English/cloze hints in M4).
 func backfillCards(ctx context.Context, st *store.Store) error {
 	entries, err := st.ListAllEntries(ctx)

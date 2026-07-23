@@ -5,39 +5,40 @@ import (
 	"errors"
 	"net/http"
 
-	"google.golang.org/genai"
+	openai "github.com/sashabaranov/go-openai"
 )
 
-// Client wraps the Gemini SDK with our request shape.
+// Client wraps the OpenAI SDK with our request shape. Model is passed as a
+// string (e.g. "gpt-5-mini") to every request so we can swap models without
+// changing method signatures.
 type Client struct {
-	sdk   *genai.Client
+	sdk   *openai.Client
 	model string
 }
 
-// Options lets callers (mostly tests) override the underlying HTTP client and
-// base URL.
+// Options lets callers (mostly tests) override the underlying HTTP client
+// and API base URL — the test suite spins up httptest.NewServer and points
+// BaseURL at it.
 type Options struct {
 	HTTPClient *http.Client
-	BaseURL    string // empty = default Gemini endpoint
+	BaseURL    string // empty = default OpenAI endpoint
 }
 
-// NewClient constructs a Client for the Gemini Developer API.
-// Returns an error if apiKey is empty.
+// NewClient constructs a Client for the OpenAI API. Returns an error if
+// apiKey is empty.
 func NewClient(ctx context.Context, apiKey, model string, opts Options) (*Client, error) {
 	if apiKey == "" {
-		return nil, errors.New("missing GEMINI_API_KEY")
+		return nil, errors.New("missing OPENAI_API_KEY")
 	}
-	cfg := &genai.ClientConfig{
-		APIKey:     apiKey,
-		Backend:    genai.BackendGeminiAPI,
-		HTTPClient: opts.HTTPClient,
-	}
+	cfg := openai.DefaultConfig(apiKey)
 	if opts.BaseURL != "" {
-		cfg.HTTPOptions = genai.HTTPOptions{BaseURL: opts.BaseURL}
+		cfg.BaseURL = opts.BaseURL
 	}
-	sdk, err := genai.NewClient(ctx, cfg)
-	if err != nil {
-		return nil, err
+	if opts.HTTPClient != nil {
+		cfg.HTTPClient = opts.HTTPClient
 	}
-	return &Client{sdk: sdk, model: model}, nil
+	return &Client{
+		sdk:   openai.NewClientWithConfig(cfg),
+		model: model,
+	}, nil
 }

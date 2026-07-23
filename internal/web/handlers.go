@@ -135,8 +135,8 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		DueCount:   due,
 		NewCount:   new_,
 		TotalCount: total,
-		LLMEnabled: s.cfg.GeminiAPIKey != "",
-		LLMModel:   s.cfg.GeminiModel,
+		LLMEnabled: s.cfg.OpenAIAPIKey != "",
+		LLMModel:   s.cfg.OpenAIModel,
 		Motivation: pickHomeNudge(ctx, s.store, totalReviews),
 		Trophies:   reached,
 		NextTrophy: next,
@@ -147,7 +147,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 }
 
 // pickWordOfDay fetches today's Word of the Day, creating the row on the
-// first visit each day. When the row is fresh and Gemini is configured,
+// first visit each day. When the row is fresh and the LLM is configured,
 // kicks off a background goroutine to generate a beginner-friendly example
 // sentence; the sentence appears on subsequent page loads.
 //
@@ -248,7 +248,7 @@ type entryState struct {
 	clozeHint *string // post-enrichment cloze target
 }
 
-// maxUploadBytes caps file uploads. Gemini's inline-data limit is ~20 MB but
+// maxUploadBytes caps file uploads. OpenAI's image inputs cap at ~20 MB but
 // for personal-deck-sized notes 8 MB is plenty and keeps the round-trip
 // snappy.
 const maxUploadBytes = 8 << 20
@@ -287,7 +287,7 @@ func readUploadedFile(r *http.Request) (data []byte, filename, mimeType string, 
 	return data, header.Filename, mimeType, nil
 }
 
-// supportedUploadMIME reports whether Gemini can ingest this file directly.
+// supportedUploadMIME reports whether OpenAI vision can ingest this file directly.
 func supportedUploadMIME(m string) bool {
 	switch m {
 	case "image/png", "image/jpeg", "image/jpg", "image/webp", "image/heic", "image/heif", "application/pdf":
@@ -326,7 +326,7 @@ func (s *Server) handleImportPost(w http.ResponseWriter, r *http.Request) {
 
 	if fileData != nil {
 		if s.llm == nil {
-			http.Error(w, "file uploads require GEMINI_API_KEY (multimodal parsing). Paste text into the textarea instead.", http.StatusBadRequest)
+			http.Error(w, "file uploads require OPENAI_API_KEY (multimodal parsing). Paste text into the textarea instead.", http.StatusBadRequest)
 			return
 		}
 		if !supportedUploadMIME(fileMIME) {
@@ -360,7 +360,7 @@ func (s *Server) handleImportPost(w http.ResponseWriter, r *http.Request) {
 		summary.NoteDate = parsed.NoteDate.Format("2006-01-02")
 	}
 
-	// When the LLM is configured AND this is a new note, let Gemini parse
+	// When the LLM is configured AND this is a new note, let OpenAI parse
 	// directly. For uploaded files this is the ONLY supported path (we don't
 	// run local OCR). For text, this also unlocks free-form note parsing.
 	var entriesToInsert []model.ParsedEntry
@@ -376,7 +376,7 @@ func (s *Server) handleImportPost(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			// Don't insert anything when smart-parse fails — heuristic-parsed
 			// entries from free-form notes are usually low quality. Roll back
-			// the note row so the user can re-import once Gemini is back.
+			// the note row so the user can re-import once the model is back.
 			summary.EnrichmentError = err.Error()
 			slog.Warn("smart parse failed; rolling back note", "err", err, "note_id", noteRes.NoteID)
 			if _, derr := s.store.DeleteNote(ctx, noteRes.NoteID); derr != nil {
@@ -413,14 +413,14 @@ func (s *Server) handleImportPost(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// 2) Apply Gemini-supplied enrichment + example sentences when smartParse
+	// 2) Apply model-supplied enrichment + example sentences when smartParse
 	//    ran. When it didn't (offline / not first import), nothing happens here.
 	var exampleStates []entryState
 	if llmParseResult != nil {
 		exampleStates = s.applySmartEnrichment(ctx, noteRes.NoteID, states, llmParseResult, summary)
 	}
 
-	// 3) Generate cards for originals + Gemini-generated example sentences,
+	// 3) Generate cards for originals + model-generated example sentences,
 	//    using whatever data is now considered "final" for each entry. Under
 	//    the 1-card-per-entry model, skip generation when the entry already
 	//    has ANY card (regardless of its card_type — covers legacy rows from
@@ -492,7 +492,7 @@ func (s *Server) handleReviewDelete(w http.ResponseWriter, r *http.Request) {
 	s.renderer.RenderPartial(w, "review", "card-area", data)
 }
 
-// smartParse delegates parsing to Gemini for free-form lesson notes the
+// smartParse delegates parsing to OpenAI for free-form lesson notes the
 // heuristic parser can't handle (tables, prose, parens, B1/B2 phrase lists).
 // Returns the structured ParseResult ready for entry insertion.
 func (s *Server) smartParse(ctx context.Context, rawText string) (*llm.ParseResult, error) {
@@ -501,7 +501,7 @@ func (s *Server) smartParse(ctx context.Context, rawText string) (*llm.ParseResu
 	return s.llm.ParseAndEnrich(parseCtx, rawText)
 }
 
-// smartParseFile is the multimodal sibling of smartParse: Gemini OCRs the
+// smartParseFile is the multimodal sibling of smartParse: the vision model OCRs the
 // uploaded image / reads the PDF and produces the same ParseResult shape.
 func (s *Server) smartParseFile(ctx context.Context, data []byte, mimeType string) (*llm.ParseResult, error) {
 	parseCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
@@ -509,7 +509,7 @@ func (s *Server) smartParseFile(ctx context.Context, data []byte, mimeType strin
 	return s.llm.ParseAndEnrichFile(parseCtx, data, mimeType)
 }
 
-// llmEntriesAsParsed converts Gemini's parsed-and-enriched entries into the
+// llmEntriesAsParsed converts the model's parsed-and-enriched entries into the
 // model.ParsedEntry shape the rest of the import pipeline expects. Enrichment
 // fields (cloze hint, grammar note, typo correction) are NOT carried here —
 // they're applied separately via applySmartEnrichment after the entries get
@@ -535,7 +535,7 @@ func canonicalChinese(s string) string {
 	return parser.CanonicalChinese(s)
 }
 
-// applySmartEnrichment writes Gemini-supplied enrichment fields back to the
+// applySmartEnrichment writes model-supplied enrichment fields back to the
 // just-inserted entries and creates example_sentence rows linked by Chinese
 // text. Returns entryStates for the new example sentences so cards get
 // generated for them in the caller's loop.
@@ -559,7 +559,7 @@ func (s *Server) applySmartEnrichment(
 		key := strings.ToLower(strings.TrimSpace(canonicalChinese(en.Chinese)))
 		st, ok := byCanonical[key]
 		if !ok {
-			continue // Gemini emitted an entry we didn't insert (rare)
+			continue // the model emitted an entry we didn't insert (rare)
 		}
 		if err := s.store.UpdateEntryEnrichment(ctx, store.EnrichEntryUpdate{
 			EntryID:            st.entryID,
@@ -619,7 +619,7 @@ func (s *Server) applySmartEnrichment(
 	return out
 }
 
-// applyEnrichment sends the parsed entries to Gemini, persists per-entry
+// applyEnrichment sends the parsed entries to the LLM, persists per-entry
 // updates and any example_sentence entries, and returns entryStates for those
 // example sentences so cards can be generated for them. On any failure, the
 // note is left with enriched_at = NULL so /admin/enrich-pending can retry.
@@ -712,7 +712,7 @@ func (s *Server) applyEnrichment(
 func (s *Server) handleAdminEnrichPending(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if s.llm == nil {
-		http.Error(w, "GEMINI_API_KEY not configured", http.StatusServiceUnavailable)
+		http.Error(w, "OPENAI_API_KEY not configured", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -823,8 +823,8 @@ func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 	data := settingsData{
 		NewPerDay:  s.dailyTarget(ctx),
 		Saved:      r.URL.Query().Get("saved") == "1",
-		LLMEnabled: s.cfg.GeminiAPIKey != "",
-		LLMModel:   s.cfg.GeminiModel,
+		LLMEnabled: s.cfg.OpenAIAPIKey != "",
+		LLMModel:   s.cfg.OpenAIModel,
 	}
 	if d != nil {
 		data.NewIntroduced = d.NewIntroduced

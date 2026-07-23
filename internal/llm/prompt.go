@@ -1,6 +1,8 @@
 package llm
 
-import "google.golang.org/genai"
+import (
+	"encoding/json"
+)
 
 const systemPrompt = `You are a Mandarin Chinese tutor helping an ABSOLUTE BEGINNER (A1 / HSK 1) organise lesson notes into spaced-repetition flashcards. The learner is studying Modern Standard Mandarin (Putonghua) with simplified characters (简体字) and has essentially no prior Chinese knowledge — assume they're seeing pinyin and hanzi for the very first time.
 
@@ -78,91 +80,107 @@ Rules for extraction:
 Use simplified characters (简体字) and standard Mandarin pinyin with tone marks. Be thorough but precise — every entry must be a real Chinese vocabulary item the learner would benefit from drilling.
 `
 
-// parseResponseSchema constrains the JSON Gemini emits for ParseAndEnrich.
-// Entries are addressed by Chinese text (no source_index, since the input is
-// raw text rather than a pre-parsed array).
-func parseResponseSchema() *genai.Schema {
-	nullable := func() *bool { b := true; return &b }
-	str := genai.TypeString
-
-	return &genai.Schema{
-		Type: genai.TypeObject,
-		Properties: map[string]*genai.Schema{
+// parseResponseSchema returns the JSON schema OpenAI enforces on the
+// ParseAndEnrich reply. Strict mode requires:
+//   - `additionalProperties: false` on every object
+//   - Every property listed in `required`
+//   - Nullable fields declared as `{ "type": ["string", "null"] }` rather
+//     than a boolean nullable flag.
+//
+// The schema is returned as json.RawMessage so we send exactly what the
+// API expects; the SDK just forwards these bytes through.
+func parseResponseSchema() json.RawMessage {
+	return mustSchema(`{
+		"type": "object",
+		"additionalProperties": false,
+		"properties": {
 			"entries": {
-				Type: genai.TypeArray,
-				Items: &genai.Schema{
-					Type: genai.TypeObject,
-					Properties: map[string]*genai.Schema{
-						"chinese":              {Type: str},
-						"pinyin":               {Type: str},
-						"kind":                 {Type: str, Enum: []string{"word", "phrase", "verb", "sentence"}},
-						"english":              {Type: str},
-						"suggested_cloze_word": {Type: str, Nullable: nullable()},
-						"grammar_note":         {Type: str, Nullable: nullable()},
-						"typo_correction":      {Type: str, Nullable: nullable()},
+				"type": "array",
+				"items": {
+					"type": "object",
+					"additionalProperties": false,
+					"properties": {
+						"chinese":              {"type": "string"},
+						"pinyin":               {"type": "string"},
+						"kind":                 {"type": "string", "enum": ["word", "phrase", "verb", "sentence"]},
+						"english":              {"type": "string"},
+						"suggested_cloze_word": {"type": ["string", "null"]},
+						"grammar_note":         {"type": ["string", "null"]},
+						"typo_correction":      {"type": ["string", "null"]}
 					},
-					Required: []string{"chinese", "pinyin", "kind", "english"},
-				},
+					"required": ["chinese", "pinyin", "kind", "english", "suggested_cloze_word", "grammar_note", "typo_correction"]
+				}
 			},
 			"example_sentences": {
-				Type: genai.TypeArray,
-				Items: &genai.Schema{
-					Type: genai.TypeObject,
-					Properties: map[string]*genai.Schema{
-						"parent_chinese": {Type: str},
-						"chinese":        {Type: str},
-						"pinyin":         {Type: str},
-						"english":        {Type: str},
-						"target_word":    {Type: str},
+				"type": "array",
+				"items": {
+					"type": "object",
+					"additionalProperties": false,
+					"properties": {
+						"parent_chinese": {"type": "string"},
+						"chinese":        {"type": "string"},
+						"pinyin":         {"type": "string"},
+						"english":        {"type": "string"},
+						"target_word":    {"type": "string"}
 					},
-					Required: []string{"parent_chinese", "chinese", "pinyin", "english", "target_word"},
-				},
-			},
+					"required": ["parent_chinese", "chinese", "pinyin", "english", "target_word"]
+				}
+			}
 		},
-		Required: []string{"entries"},
-	}
+		"required": ["entries", "example_sentences"]
+	}`)
 }
 
-// responseSchema is what we tell Gemini to enforce on its JSON output.
-func responseSchema() *genai.Schema {
-	nullable := func() *bool { b := true; return &b }
-	str := genai.TypeString
-	integer := genai.TypeInteger
-
-	return &genai.Schema{
-		Type: genai.TypeObject,
-		Properties: map[string]*genai.Schema{
+// enrichResponseSchema is the schema for the Enrich call — takes indexed
+// inputs, refers to them by source_index in the reply.
+func enrichResponseSchema() json.RawMessage {
+	return mustSchema(`{
+		"type": "object",
+		"additionalProperties": false,
+		"properties": {
 			"entries": {
-				Type: genai.TypeArray,
-				Items: &genai.Schema{
-					Type: genai.TypeObject,
-					Properties: map[string]*genai.Schema{
-						"source_index":         {Type: integer},
-						"pinyin":               {Type: str},
-						"english":              {Type: str},
-						"kind_correction":      {Type: str, Enum: []string{"word", "phrase", "verb", "sentence", "unchanged"}},
-						"suggested_cloze_word": {Type: str, Nullable: nullable()},
-						"grammar_note":         {Type: str, Nullable: nullable()},
-						"typo_correction":      {Type: str, Nullable: nullable()},
+				"type": "array",
+				"items": {
+					"type": "object",
+					"additionalProperties": false,
+					"properties": {
+						"source_index":         {"type": "integer"},
+						"pinyin":               {"type": "string"},
+						"english":              {"type": "string"},
+						"kind_correction":      {"type": "string", "enum": ["word", "phrase", "verb", "sentence", "unchanged"]},
+						"suggested_cloze_word": {"type": ["string", "null"]},
+						"grammar_note":         {"type": ["string", "null"]},
+						"typo_correction":      {"type": ["string", "null"]}
 					},
-					Required: []string{"source_index", "pinyin", "english", "kind_correction"},
-				},
+					"required": ["source_index", "pinyin", "english", "kind_correction", "suggested_cloze_word", "grammar_note", "typo_correction"]
+				}
 			},
 			"example_sentences": {
-				Type: genai.TypeArray,
-				Items: &genai.Schema{
-					Type: genai.TypeObject,
-					Properties: map[string]*genai.Schema{
-						"source_index": {Type: integer},
-						"chinese":      {Type: str},
-						"pinyin":       {Type: str},
-						"english":      {Type: str},
-						"target_word":  {Type: str},
+				"type": "array",
+				"items": {
+					"type": "object",
+					"additionalProperties": false,
+					"properties": {
+						"source_index": {"type": "integer"},
+						"chinese":      {"type": "string"},
+						"pinyin":       {"type": "string"},
+						"english":      {"type": "string"},
+						"target_word":  {"type": "string"}
 					},
-					Required: []string{"source_index", "chinese", "pinyin", "english", "target_word"},
-				},
-			},
+					"required": ["source_index", "chinese", "pinyin", "english", "target_word"]
+				}
+			}
 		},
-		Required: []string{"entries"},
+		"required": ["entries", "example_sentences"]
+	}`)
+}
+
+// mustSchema validates that a schema literal is well-formed JSON at boot.
+// Panics on a typo — better than shipping broken schemas.
+func mustSchema(s string) json.RawMessage {
+	var probe any
+	if err := json.Unmarshal([]byte(s), &probe); err != nil {
+		panic("llm: bad response schema literal: " + err.Error())
 	}
+	return json.RawMessage(s)
 }

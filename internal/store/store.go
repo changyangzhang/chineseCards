@@ -313,7 +313,7 @@ type EnrichEntryUpdate struct {
 	EnrichedAt         time.Time
 }
 
-// UpdateEntryEnrichment writes Gemini-supplied fields onto an existing entry.
+// UpdateEntryEnrichment writes LLM-supplied fields onto an existing entry.
 // Pinyin and English are overwritten only when non-empty (so we don't clobber
 // user-provided values with an empty string).
 func (s *Store) UpdateEntryEnrichment(ctx context.Context, u EnrichEntryUpdate) error {
@@ -348,7 +348,7 @@ func (s *Store) UpdateEntryEnrichment(ctx context.Context, u EnrichEntryUpdate) 
 	return nil
 }
 
-// InsertExampleSentence creates a Gemini-generated example sentence as a new
+// InsertExampleSentence creates a LLM-generated example sentence as a new
 // `example_sentence` entry linked back to the source word entry. Idempotent.
 func (s *Store) InsertExampleSentence(
 	ctx context.Context,
@@ -384,7 +384,7 @@ func (s *Store) InsertExampleSentence(
 	return id, false, nil
 }
 
-// MarkNoteEnriched stamps a note as having been processed by Gemini.
+// MarkNoteEnriched stamps a note as having been processed by the LLM.
 func (s *Store) MarkNoteEnriched(ctx context.Context, noteID int64, at time.Time) error {
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE notes SET enriched_at = ? WHERE id = ?`,
@@ -511,7 +511,7 @@ func (s *Store) ReviewAccuracy(ctx context.Context) (rate float64, total int, er
 	return float64(good) / float64(total), total, nil
 }
 
-// TypoSuggestion is a pending Gemini typo correction for one entry.
+// TypoSuggestion is a pending the model typo correction for one entry.
 type TypoSuggestion struct {
 	EntryID    int64
 	Kind       model.Kind
@@ -519,7 +519,7 @@ type TypoSuggestion struct {
 	Suggested  string
 }
 
-// ListPendingTypos returns entries that have a Gemini typo_correction set.
+// ListPendingTypos returns entries that have a the model typo_correction set.
 func (s *Store) ListPendingTypos(ctx context.Context) ([]TypoSuggestion, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, kind, chinese_raw, typo_correction
@@ -780,7 +780,7 @@ func (s *Store) DeleteEntriesByCardIDs(ctx context.Context, cardIDs []int64) (in
 	return total, nil
 }
 
-// ExampleSentence is one of (possibly many) Gemini-generated example sentences
+// ExampleSentence is one of (possibly many) model-generated example sentences
 // attached to a word/phrase/verb entry.
 type ExampleSentence struct {
 	Chinese    string
@@ -822,7 +822,7 @@ func (s *Store) ListExampleSentencesForEntry(ctx context.Context, sourceEntryID 
 	return out, rows.Err()
 }
 
-// GetEntryByID returns the entry that owns this card, including the Gemini-
+// GetEntryByID returns the entry that owns this card, including the LLM-
 // enriched fields the review layer needs to pick a presentation mode.
 func (s *Store) GetEntryByCardID(ctx context.Context, cardID int64) (*EntryRow, error) {
 	row := s.db.QueryRowContext(ctx, `

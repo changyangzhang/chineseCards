@@ -32,8 +32,8 @@ Single-user app. Built for one person's daily habit; not designed for shared dec
 |---|---|
 | `/` | Today's due/new/total counts, six-month contribution grid, trophy shelf, motivational nudge, **Word of the Day** |
 | `/review` | Multiple-choice quiz with progress bar + auto-TTS + retry loop |
-| `/chat` | Message thread with the Mandarin tutor (Gemini) |
-| `/import` | Paste text / upload image or PDF for AI parse + enrichment |
+| `/chat` | Message thread with the Mandarin tutor (OpenAI) |
+| `/import` | Paste text / upload image for AI parse + enrichment |
 | `/cards` | Browse the deck, edit / delete cards, accept AI typo fixes |
 | `/stats` | Streak, accuracy, six-month contribution grid, upcoming due chart |
 | `/settings` | Daily review target |
@@ -56,13 +56,13 @@ Every review is multiple-choice. Each render of a card picks **a fresh presentat
 Reviewing the same card twice in a row never looks identical:
 - Distractors are pulled fresh each render (`ORDER BY RANDOM()`).
 - For cloze cards, the blanked word uses the LLM's suggested target when available and falls back to whitespace tokenisation.
-- For word entries with a Gemini-generated example sentence attached, cloze mode uses that example so you drill the word in context.
+- For word entries with an OpenAI-generated example sentence attached, cloze mode uses that example so you drill the word in context.
 
 Auto-graded: correct → SM-2 `Good`. Keyboard shortcuts 1–4 pick MC options.
 
 ### Pinyin everywhere
 
-Every hanzi in the quiz — front, choices, cloze context — carries toned pinyin underneath. DB-stored pinyin (from LLM enrichment) is preferred; the offline [`go-pinyin`](https://github.com/mozillazg/go-pinyin) library fills in for anything the LLM never touched, so cards imported without a Gemini key still get readings.
+Every hanzi in the quiz — front, choices, cloze context — carries toned pinyin underneath. DB-stored pinyin (from LLM enrichment) is preferred; the offline [`go-pinyin`](https://github.com/mozillazg/go-pinyin) library fills in for anything the LLM never touched, so cards imported without an OpenAI key still get readings.
 
 Pinyin on the *blanked* cloze sentence is computed from the masked string, so it doesn't leak the answer.
 
@@ -136,7 +136,7 @@ If you get one wrong after a run of ≥3 correct, you get a warm line instead of
 
 ### Word of the Day
 
-Home page shows one random word from your deck each day with a **fresh** LLM-generated A1 example sentence — hanzi, pinyin, English — regenerated at midnight. Cached in a `word_of_day` SQLite table so refreshing doesn't burn Gemini quota. Even if you don't review, opening the app to see today's word is a habit hook.
+Home page shows one random word from your deck each day with a **fresh** LLM-generated A1 example sentence — hanzi, pinyin, English — regenerated at midnight. Cached in a `word_of_day` SQLite table so refreshing doesn't burn OpenAI quota. Even if you don't review, opening the app to see today's word is a habit hook.
 
 ---
 
@@ -145,11 +145,11 @@ Home page shows one random word from your deck each day with a **fresh** LLM-gen
 Two input modes on `/import`:
 
 1. **Paste text** into the textarea. Works for the classic `Chinese = English` format and the heuristic parser handles it offline (no API key needed).
-2. **Upload a file** — image (PNG/JPG/HEIC/WebP), PDF, or .txt/.md. Up to 8 MB. Photos of handwritten or printed Chinese notes work directly; Gemini's multimodal API does OCR + parsing in a single call.
+2. **Upload a file** — image (PNG/JPG/HEIC/WebP), PDF, or .txt/.md. Up to 8 MB. Photos of handwritten or printed Chinese notes work directly; OpenAI's vision-capable model does OCR + parsing in a single call.
 
 Each entry produces **exactly one card** (no duplicates per concept). Hash-based dedup: re-pasting the same notes is a no-op.
 
-When `GEMINI_API_KEY` is set, Gemini handles BOTH parsing and enrichment in one call, tuned for **absolute beginners (A1 / HSK 1)**:
+When `OPENAI_API_KEY` is set, OpenAI GPT-5-mini handles BOTH parsing and enrichment in one call, tuned for **absolute beginners (A1 / HSK 1)**:
 - Foundational greetings (`你好`, `谢谢`, `再见`), pronouns, copulas, basic verbs, numbers, question particles — none skipped as "too elementary".
 - Simplified characters (简体字) with toned pinyin.
 - One short A1-level example sentence per word entry (used later for cloze prompts).
@@ -157,18 +157,18 @@ When `GEMINI_API_KEY` is set, Gemini handles BOTH parsing and enrichment in one 
 - One-sentence grammar notes.
 - Typo flags surfaced on `/cards` for one-click Accept / Dismiss.
 
-Retries on transient 503/429 with backoff. The app degrades gracefully when `GEMINI_API_KEY` is unset: the textarea path still works via the heuristic parser (pinyin is filled by the offline library, no examples generated).
+Retries on transient 503/429 with backoff. The app degrades gracefully when `OPENAI_API_KEY` is unset: the textarea path still works via the heuristic parser (pinyin is filled by the offline library, no examples generated).
 
 ---
 
 ## Tutor chat
 
-The **Chat** tab (`/chat`) opens a persistent conversation with a Gemini-backed Mandarin tutor tuned for absolute beginners. Every hanzi reply comes with pinyin and English; tone stays warm and concise. Multi-turn context is preserved across messages *and* across page reloads — the whole thread lives in a `chat_messages` SQLite table.
+The **Chat** tab (`/chat`) opens a persistent conversation with a OpenAI-backed Mandarin tutor tuned for absolute beginners. Every hanzi reply comes with pinyin and English; tone stays warm and concise. Multi-turn context is preserved across messages *and* across page reloads — the whole thread lives in a `chat_messages` SQLite table.
 
 - **Enter** sends, **Shift+Enter** newline.
-- Retries on Gemini 503/429.
+- Retries on 429/5xx.
 - 🗑 clear button to wipe the thread and start over.
-- Fallback message when `GEMINI_API_KEY` is unset.
+- Fallback message when `OPENAI_API_KEY` is unset.
 
 ---
 
@@ -187,7 +187,7 @@ Session HMAC key is derived from the password itself, so rotating `BASIC_PASS` i
 - **Backend**: Go 1.26, `chi` router, `html/template`, `slog`.
 - **Storage**: SQLite via `modernc.org/sqlite` (pure Go, no CGO). One file at `/data/chinese.db`.
 - **Frontend**: server-rendered HTML + [HTMX](https://htmx.org) for partial swaps. Hand-rolled CSS (no Tailwind, no framework). Vanilla JS for keyboard shortcuts, TTS, and the chat send-on-Enter behavior.
-- **AI**: `google.golang.org/genai` (official Gen AI Go SDK), `responseSchema` for structured output.
+- **AI**: `github.com/sashabaranov/go-openai`, `responseSchema` for structured output.
 - **Pinyin**: `github.com/mozillazg/go-pinyin` for offline hanzi → toned-pinyin conversion.
 - **Deploy**: Docker (distroless base, ~8 MB binary). Ships to Fly.io with the included `fly.toml`.
 
@@ -200,8 +200,8 @@ git clone https://github.com/changyangzhang/chineseCards.git
 cd chineseCards
 
 cp .env.example .env
-# Edit .env — at minimum, set GEMINI_API_KEY (free at
-# https://aistudio.google.com/apikey). BASIC_USER/BASIC_PASS optional
+# Edit .env — at minimum, set OPENAI_API_KEY (free at
+# https://platform.openai.com/api-keys). BASIC_USER/BASIC_PASS optional
 # for local; required for any public deployment.
 
 docker compose up -d --build
@@ -223,8 +223,8 @@ go run .
 
 | Var | Default | Purpose |
 |---|---|---|
-| `GEMINI_API_KEY` | _empty_ | Enables AI enrichment, chat, Word-of-the-Day example generation, and typo detection. Free tier at https://aistudio.google.com/apikey. App works without it (pinyin still fills via the offline library). |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Override the model. |
+| `OPENAI_API_KEY` | _empty_ | Enables AI enrichment, chat, Word-of-the-Day example generation, and typo detection. Get one at https://platform.openai.com/api-keys. App works without it (pinyin still fills via the offline library). |
+| `OPENAI_MODEL` | `gpt-5-mini` | Override the model. |
 | `NEW_PER_DAY` | `10` | **Seed only** — first-run default for the daily review target (new + due combined). After that, `/settings` (DB-persisted) wins. |
 | `BASIC_USER`, `BASIC_PASS` | _empty_ | Auth credentials. Both empty = auth disabled (fine for localhost; **set both before exposing the app publicly**). |
 | `DB_PATH` | `chinese.db` | SQLite file path. Docker compose mounts a host volume at `/data`. |
@@ -239,14 +239,14 @@ go run .
 flyctl auth login
 flyctl launch --copy-config --no-deploy
 flyctl volumes create data --region arn --size 1
-flyctl secrets set GEMINI_API_KEY=... BASIC_USER=... BASIC_PASS=...
+flyctl secrets set OPENAI_API_KEY=... BASIC_USER=... BASIC_PASS=...
 flyctl deploy
 flyctl open
 ```
 
 `fly.toml` is checked in: single machine, 256 MB, Stockholm region, auto-stop when idle. Realistic cost for personal use: $0–2/month.
 
-Public deployment requires `BASIC_USER` + `BASIC_PASS` to be set, otherwise anyone with the URL can burn your Gemini quota.
+Public deployment requires `BASIC_USER` + `BASIC_PASS` to be set, otherwise anyone with the URL can burn your OpenAI quota.
 
 ---
 
@@ -259,7 +259,7 @@ Public deployment requires `BASIC_USER` + `BASIC_PASS` to be set, otherwise anyo
 ├── internal/
 │   ├── cards/generate.go            # entry → card (1:1)
 │   ├── config/config.go             # env-var loading
-│   ├── llm/                         # Gemini client: parse/enrich, chat, WOTD example
+│   ├── llm/                         # OpenAI client: parse/enrich, chat, WOTD example
 │   ├── model/model.go               # Kind, CardType enums + shared types
 │   ├── parser/                      # heuristic parser + Chinese stop-words
 │   ├── srs/sm2.go                   # SM-2 math + tests
@@ -299,12 +299,12 @@ Public deployment requires `BASIC_USER` + `BASIC_PASS` to be set, otherwise anyo
 ## Privacy
 
 - Lesson notes, cards, review history, and chat messages live in **one local SQLite file** at `/data/chinese.db`.
-- Gemini API is called at import time (one batched call per note), at chat time (per message), and once per day for Word-of-the-Day example generation. No data leaves the machine for review / SM-2 / stats.
-- File uploads (images/PDFs) are NOT stored — bytes go to Gemini in the request body, then the in-memory copy is garbage-collected. `notes.raw_text` records only the filename + sha256 + size as a stable dedup identifier.
+- OpenAI API is called at import time (one batched call per note), at chat time (per message), and once per day for Word-of-the-Day example generation. No data leaves the machine for review / SM-2 / stats.
+- File uploads (images/PDFs) are NOT stored — bytes go to OpenAI in the request body, then the in-memory copy is garbage-collected. `notes.raw_text` records only the filename + sha256 + size as a stable dedup identifier.
 - TTS runs entirely in the browser (Web Speech API) — no audio leaves the device.
 - Session cookies are HMAC-signed and marked `HttpOnly` + `SameSite=Lax` + `Secure` on HTTPS.
 - The `data/` directory is gitignored; never commit it.
-- Gemini's free tier may use inputs to improve Google's models per their terms; upgrade to paid to opt out, or paste sensitive notes manually.
+- OpenAI's  may use inputs to improve Google's models per their terms; upgrade to paid to opt out, or paste sensitive notes manually.
 
 ---
 

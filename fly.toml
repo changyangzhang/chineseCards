@@ -11,7 +11,7 @@ primary_region = 'arn'
 
 [env]
   DB_PATH = '/data/chinese.db'
-  GEMINI_MODEL = 'gemini-2.5-flash'
+  OPENAI_MODEL = 'gpt-5-mini'
   HTTP_ADDR = ':8080'
 
 [[mounts]]

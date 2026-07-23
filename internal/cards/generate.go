@@ -24,8 +24,8 @@ type Generated struct {
 //   - KindWord / KindPhrase / KindVerb: one card (front=chineseRaw, back=english).
 //     english must be non-empty.
 //   - KindSentence: one card; cloze_answer is the target word for cloze mode
-//     (Gemini hint or longest-non-stopword fallback).
-//   - KindSentenceUntranslated: one card; back may be empty (Gemini fills later).
+//     (LLM hint or longest-non-stopword fallback).
+//   - KindSentenceUntranslated: one card; back may be empty (the LLM fills later).
 //     cloze_answer is the target word for the only viable mode (cloze).
 //   - KindExampleSentence: NONE. These entries live as attached "example data"
 //     pulled in at review time when reviewing their parent word entry.
@@ -76,7 +76,7 @@ func Generate(kind model.Kind, chineseRaw, english string, clozeHint *string) []
 }
 
 // pickClozeAnswer returns the token to use as the cloze target for a sentence.
-// Prefers the Gemini-supplied hint when it actually appears in the sentence;
+// Prefers the LLM-supplied hint when it actually appears in the sentence;
 // otherwise falls back to the longest non-stopword token. Returns "" when the
 // sentence has no eligible content word at all.
 //

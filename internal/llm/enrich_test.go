@@ -27,37 +27,43 @@ func TestEnrich_DecodesResponse(t *testing.T) {
 	// What we want Enrich() to return after JSON decoding.
 	enrichJSON := `{
 		"entries": [
-			{"source_index": 0, "pinyin": "nǐ hǎo", "english": "hello", "kind_correction": "unchanged", "grammar_note": "the universal greeting; literally 'you good'"},
-			{"source_index": 1, "pinyin": "xièxie", "english": "thank you", "kind_correction": "unchanged", "typo_correction": "谢谢"}
+			{"source_index": 0, "pinyin": "nǐ hǎo", "english": "hello", "kind_correction": "unchanged", "suggested_cloze_word": null, "grammar_note": "the universal greeting; literally 'you good'", "typo_correction": null},
+			{"source_index": 1, "pinyin": "xièxie", "english": "thank you", "kind_correction": "unchanged", "suggested_cloze_word": null, "grammar_note": null, "typo_correction": "谢谢"}
 		],
 		"example_sentences": [
 			{"source_index": 0, "chinese": "你好，老师。", "pinyin": "nǐ hǎo, lǎoshī.", "english": "Hello, teacher.", "target_word": "你好"}
 		]
 	}`
 
-	// Gemini wraps the model output in a candidates[0].content.parts[0].text envelope.
-	gemini, _ := json.Marshal(map[string]any{
-		"candidates": []map[string]any{
+	// OpenAI chat completions envelope: choices[0].message.content is a JSON
+	// string containing the structured payload.
+	oai, _ := json.Marshal(map[string]any{
+		"id":      "chatcmpl-test",
+		"object":  "chat.completion",
+		"model":   "gpt-5-mini",
+		"created": 0,
+		"choices": []map[string]any{
 			{
-				"content": map[string]any{
-					"role":  "model",
-					"parts": []map[string]any{{"text": enrichJSON}},
+				"index":         0,
+				"finish_reason": "stop",
+				"message": map[string]any{
+					"role":    "assistant",
+					"content": enrichJSON,
 				},
-				"finishReason": "STOP",
 			},
 		},
 	})
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.URL.Path, "generateContent") {
+		if !strings.Contains(r.URL.Path, "/chat/completions") {
 			t.Errorf("unexpected request path %q", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, string(gemini))
+		_, _ = io.WriteString(w, string(oai))
 	}))
 	defer srv.Close()
 
-	c, err := NewClient(context.Background(), "test-key", "gemini-2.5-flash", Options{BaseURL: srv.URL})
+	c, err := NewClient(context.Background(), "test-key", "gpt-5-mini", Options{BaseURL: srv.URL})
 	if err != nil {
 		t.Fatalf("new client: %v", err)
 	}
@@ -94,7 +100,7 @@ func TestEnrich_DecodesResponse(t *testing.T) {
 }
 
 func TestEnrich_MissingKey(t *testing.T) {
-	_, err := NewClient(context.Background(), "", "gemini-2.5-flash", Options{})
+	_, err := NewClient(context.Background(), "", "gpt-5-mini", Options{})
 	if err == nil {
 		t.Errorf("expected error for empty API key")
 	}

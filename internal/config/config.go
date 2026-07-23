@@ -9,8 +9,8 @@ import (
 type Config struct {
 	DBPath       string
 	HTTPAddr     string
-	GeminiAPIKey string
-	GeminiModel  string
+	OpenAIAPIKey string
+	OpenAIModel  string
 	NewPerDay    int
 	ReverseCards bool
 	BasicUser    string // HTTP basic auth username (empty = auth disabled)
@@ -19,10 +19,10 @@ type Config struct {
 
 func Load() Config {
 	return Config{
-		DBPath:       envOr("DB_PATH", "swedish.db"),
+		DBPath:       envOr("DB_PATH", "chinese.db"),
 		HTTPAddr:     envOr("HTTP_ADDR", ":8080"),
-		GeminiAPIKey: os.Getenv("GEMINI_API_KEY"),
-		GeminiModel:  envOr("GEMINI_MODEL", "gemini-2.5-flash"),
+		OpenAIAPIKey: os.Getenv("OPENAI_API_KEY"),
+		OpenAIModel:  envOr("OPENAI_MODEL", "gpt-5-mini"),
 		NewPerDay:    envInt("NEW_PER_DAY", 10),
 		ReverseCards: envBool("REVERSE_CARDS", false),
 		BasicUser:    os.Getenv("BASIC_USER"),

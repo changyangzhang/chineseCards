@@ -79,7 +79,7 @@
 {{if .LLMEnabled}}
 <p class="hint">AI enrichment: <strong>enabled</strong> ({{.LLMModel}})</p>
 {{else}}
-<p class="hint warning">AI enrichment: <strong>disabled</strong> — set <code>GEMINI_API_KEY</code> in <code>.env</code> (free at <a href="https://aistudio.google.com/apikey">aistudio.google.com/apikey</a>) to translate bare sentences and generate example sentences.</p>
+<p class="hint warning">AI enrichment: <strong>disabled</strong> — set <code>OPENAI_API_KEY</code> in <code>.env</code> (<a href="https://platform.openai.com/api-keys">platform.openai.com/api-keys</a>) to translate bare sentences and generate example sentences.</p>
 {{end}}
 {{end}}
 

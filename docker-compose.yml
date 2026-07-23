@@ -10,8 +10,8 @@ services:
     environment:
       DB_PATH: /data/chinese.db
       HTTP_ADDR: ":8080"
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5-mini}
       NEW_PER_DAY: ${NEW_PER_DAY:-10}
       REVERSE_CARDS: ${REVERSE_CARDS:-false}
       BASIC_USER: ${BASIC_USER:-}

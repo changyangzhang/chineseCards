@@ -2,17 +2,17 @@ package llm
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
-	"google.golang.org/genai"
+	openai "github.com/sashabaranov/go-openai"
 
 	"chineseCards/internal/model"
 )
 
-// EnrichedEntry is one row in the Gemini response's "entries" array.
+// EnrichedEntry is one row in the model response's "entries" array.
 type EnrichedEntry struct {
 	SourceIndex        int     `json:"source_index"`
 	Pinyin             string  `json:"pinyin"`
@@ -32,13 +32,13 @@ type ExampleSentence struct {
 	TargetWord  string `json:"target_word"`
 }
 
-// Result is the decoded Gemini response.
+// Result is the decoded model response.
 type Result struct {
 	Entries          []EnrichedEntry   `json:"entries"`
 	ExampleSentences []ExampleSentence `json:"example_sentences"`
 }
 
-// promptEntry is the JSON shape we send to Gemini.
+// promptEntry is the JSON shape we send to the model.
 type promptEntry struct {
 	Index   int    `json:"index"`
 	Kind    string `json:"kind"`
@@ -46,8 +46,8 @@ type promptEntry struct {
 	English string `json:"english,omitempty"`
 }
 
-// Enrich sends entries to Gemini and returns the structured result. Empty input
-// short-circuits without any API call.
+// Enrich sends entries to the model and returns the structured result.
+// Empty input short-circuits without any API call.
 func (c *Client) Enrich(ctx context.Context, entries []model.ParsedEntry) (*Result, error) {
 	if len(entries) == 0 {
 		return &Result{}, nil
@@ -67,31 +67,33 @@ func (c *Client) Enrich(ctx context.Context, entries []model.ParsedEntry) (*Resu
 		return nil, fmt.Errorf("marshal payload: %w", err)
 	}
 
-	temp := float32(0.2)
-	cfg := &genai.GenerateContentConfig{
-		SystemInstruction: genai.NewContentFromText(systemPrompt, genai.RoleUser),
-		ResponseMIMEType:  "application/json",
-		ResponseSchema:    responseSchema(),
-		Temperature:       &temp,
-		MaxOutputTokens:   8192,
+	req := openai.ChatCompletionRequest{
+		Model: c.model,
+		Messages: []openai.ChatCompletionMessage{
+			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
+			{Role: openai.ChatMessageRoleUser, Content: string(userJSON)},
+		},
+		ResponseFormat: &openai.ChatCompletionResponseFormat{
+			Type: openai.ChatCompletionResponseFormatTypeJSONSchema,
+			JSONSchema: &openai.ChatCompletionResponseFormatJSONSchema{
+				Name:   "enrichment",
+				Schema: enrichResponseSchema(),
+				Strict: true,
+			},
+		},
 	}
 
-	resp, err := c.sdk.Models.GenerateContent(ctx, c.model,
-		[]*genai.Content{genai.NewContentFromText(string(userJSON), genai.RoleUser)},
-		cfg,
-	)
+	resp, err := c.callWithRetry(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("gemini generate: %w", err)
+		return nil, fmt.Errorf("openai enrich: %w", err)
 	}
-
-	raw := resp.Text()
+	raw := firstMessageContent(resp)
 	if raw == "" {
-		return nil, fmt.Errorf("empty response from gemini")
+		return nil, fmt.Errorf("empty response from openai enrich")
 	}
-
 	var result Result
 	if err := json.Unmarshal([]byte(raw), &result); err != nil {
-		return nil, fmt.Errorf("decode response: %w (raw=%s)", err, truncate(raw, 500))
+		return nil, fmt.Errorf("decode enrich: %w (raw=%s)", err, truncate(raw, 500))
 	}
 	return &result, nil
 }
@@ -103,8 +105,8 @@ func truncate(s string, n int) string {
 	return s[:n] + "…"
 }
 
-// ParsedAndEnrichedEntry is one row in ParseResult.Entries — Gemini has both
-// parsed it from raw notes AND filled in translation/grammar/typo data.
+// ParsedAndEnrichedEntry is one row in ParseResult.Entries — the model has
+// both parsed it from raw notes AND filled in translation/grammar/typo data.
 type ParsedAndEnrichedEntry struct {
 	Chinese            string  `json:"chinese"`
 	Pinyin             string  `json:"pinyin"`
@@ -126,97 +128,88 @@ type ParseExampleSentence struct {
 	TargetWord    string `json:"target_word"`
 }
 
-// ParseResult is the decoded Gemini response for ParseAndEnrich.
+// ParseResult is the decoded model response for ParseAndEnrich.
 type ParseResult struct {
 	Entries          []ParsedAndEnrichedEntry `json:"entries"`
 	ExampleSentences []ParseExampleSentence   `json:"example_sentences"`
 }
 
-// ParseAndEnrich asks Gemini to BOTH parse free-form Chinese lesson notes AND
-// enrich them in a single call. Handles complex inputs that the heuristic
+// ParseAndEnrich asks the model to BOTH parse free-form Chinese lesson notes
+// AND enrich them in a single call. Handles complex inputs the heuristic
 // parser can't: section headers, tables, parenthetical context, bare Chinese
-// phrases without "=" separators. Retries on transient errors (503/429).
+// phrases without "=" separators. Retries on 429/5xx.
 func (c *Client) ParseAndEnrich(ctx context.Context, rawText string) (*ParseResult, error) {
 	if strings.TrimSpace(rawText) == "" {
 		return &ParseResult{}, nil
 	}
-	return c.parseContent(ctx, []*genai.Content{
-		genai.NewContentFromText(rawText, genai.RoleUser),
+	return c.runParse(ctx, []openai.ChatCompletionMessage{
+		{Role: openai.ChatMessageRoleSystem, Content: parseSystemPrompt},
+		{Role: openai.ChatMessageRoleUser, Content: rawText},
 	})
 }
 
-// ParseAndEnrichFile extracts text from an uploaded image or PDF using Gemini's
-// multimodal input, then parses + enriches in the same call. Saves the
-// round-trip of a separate OCR step.
+// ParseAndEnrichFile extracts text from an uploaded image using the model's
+// vision input, then parses + enriches in the same call.
 //
-// Supported mime types: image/png, image/jpeg, image/webp, image/heic,
-// image/heif, application/pdf. For text/plain, callers should hand the bytes
-// to ParseAndEnrich(string(bytes)) instead — that's strictly cheaper.
+// Only image mime types are supported here — image/png, image/jpeg,
+// image/webp, image/gif. PDFs return a specific error so the handler can
+// prompt the user to re-upload as an image.
 func (c *Client) ParseAndEnrichFile(ctx context.Context, data []byte, mimeType string) (*ParseResult, error) {
 	if len(data) == 0 {
 		return &ParseResult{}, nil
 	}
-	parts := []*genai.Part{
-		{InlineData: &genai.Blob{MIMEType: mimeType, Data: data}},
-		{Text: "These are the learner's Chinese lesson notes (image or PDF). Read the content carefully and extract Chinese vocabulary items per the system instructions."},
+	if !strings.HasPrefix(mimeType, "image/") {
+		return nil, fmt.Errorf("unsupported file type %q — upload an image (PNG/JPEG/WebP) instead", mimeType)
 	}
-	return c.parseContent(ctx, []*genai.Content{{
-		Role:  genai.RoleUser,
-		Parts: parts,
-	}})
+	dataURL := "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(data)
+	msg := openai.ChatCompletionMessage{
+		Role: openai.ChatMessageRoleUser,
+		MultiContent: []openai.ChatMessagePart{
+			{
+				Type: openai.ChatMessagePartTypeImageURL,
+				ImageURL: &openai.ChatMessageImageURL{
+					URL:    dataURL,
+					Detail: openai.ImageURLDetailAuto,
+				},
+			},
+			{
+				Type: openai.ChatMessagePartTypeText,
+				Text: "These are the learner's Chinese lesson notes (image). Read the content carefully and extract Chinese vocabulary items per the system instructions.",
+			},
+		},
+	}
+	return c.runParse(ctx, []openai.ChatCompletionMessage{
+		{Role: openai.ChatMessageRoleSystem, Content: parseSystemPrompt},
+		msg,
+	})
 }
 
-// parseContent runs the parse-and-enrich call against arbitrary content
-// (text-only or multimodal). Shared by ParseAndEnrich and ParseAndEnrichFile.
-func (c *Client) parseContent(ctx context.Context, contents []*genai.Content) (*ParseResult, error) {
-	temp := float32(0.2)
-	cfg := &genai.GenerateContentConfig{
-		SystemInstruction: genai.NewContentFromText(parseSystemPrompt, genai.RoleUser),
-		ResponseMIMEType:  "application/json",
-		ResponseSchema:    parseResponseSchema(),
-		Temperature:       &temp,
-		MaxOutputTokens:   16384,
+// runParse issues the structured-output request and decodes the reply.
+// Shared by ParseAndEnrich (text) and ParseAndEnrichFile (image).
+func (c *Client) runParse(ctx context.Context, msgs []openai.ChatCompletionMessage) (*ParseResult, error) {
+	req := openai.ChatCompletionRequest{
+		Model:    c.model,
+		Messages: msgs,
+		ResponseFormat: &openai.ChatCompletionResponseFormat{
+			Type: openai.ChatCompletionResponseFormatTypeJSONSchema,
+			JSONSchema: &openai.ChatCompletionResponseFormatJSONSchema{
+				Name:   "parse_result",
+				Schema: parseResponseSchema(),
+				Strict: true,
+			},
+		},
 	}
-
-	var resp *genai.GenerateContentResponse
-	var err error
-	for attempt := 0; attempt < 3; attempt++ {
-		resp, err = c.sdk.Models.GenerateContent(ctx, c.model, contents, cfg)
-		if err == nil {
-			break
-		}
-		if !isTransientGeminiError(err) {
-			return nil, fmt.Errorf("gemini parse: %w", err)
-		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(time.Duration(2+3*attempt) * time.Second):
-		}
-	}
+	resp, err := c.callWithRetry(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("gemini parse (after retries): %w", err)
+		return nil, fmt.Errorf("openai parse: %w", err)
 	}
-
-	raw := resp.Text()
+	raw := firstMessageContent(resp)
 	if raw == "" {
-		return nil, fmt.Errorf("empty response from gemini parse")
+		return nil, fmt.Errorf("empty response from openai parse")
 	}
-
 	var result ParseResult
 	if err := json.Unmarshal([]byte(raw), &result); err != nil {
-		return nil, fmt.Errorf("decode parse response: %w (raw=%s)", err, truncate(raw, 500))
+		return nil, fmt.Errorf("decode parse: %w (raw=%s)", err, truncate(raw, 500))
 	}
 	return &result, nil
-}
-
-// isTransientGeminiError reports whether the error is one of Gemini's
-// "try again later" classes — 503 UNAVAILABLE (model overloaded) or 429
-// rate-limited. We retry these; we don't retry quota-exhaustion or 4xx
-// classes that won't change between attempts.
-func isTransientGeminiError(err error) bool {
-	s := err.Error()
-	return strings.Contains(s, "Error 503") ||
-		strings.Contains(s, "Error 429") ||
-		strings.Contains(s, "UNAVAILABLE")
 }
