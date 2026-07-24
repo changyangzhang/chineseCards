@@ -88,6 +88,64 @@ type homeData struct {
 	WordOfDay  *store.WordOfDay // today's featured word, or nil when the deck is empty
 	Contrib    contribGrid      // six-month GitHub-style activity heatmap
 	HasReviews bool             // true when there's at least one review to shade the grid with
+	Welcome    *welcomeBack     // "we missed you" modal shown after login when there's been a gap
+}
+
+// welcomeBack is the payload for the post-login modal that nudges the user
+// back into a daily routine. Nil when the modal should not render — either
+// this wasn't a fresh login (no ?welcome=1) or the learner reviewed today.
+type welcomeBack struct {
+	Days    int    // whole days since the last review (>=1 when shown)
+	Headline string // sweet, warm one-liner scaled to the gap length
+	Body     string // supporting sentence about routine + tiny commitment ask
+}
+
+// buildWelcomeBack decides whether to show the "keep the streak" modal and
+// what tone to strike. Only fires when the login redirect set ?welcome=1
+// (so a same-tab home refresh doesn't re-open it) AND the learner has a
+// gap of at least one full day since their last review. Returns nil when
+// either guard fails.
+func buildWelcomeBack(r *http.Request, rows []store.DayCount, now time.Time) *welcomeBack {
+	if r.URL.Query().Get("welcome") != "1" {
+		return nil
+	}
+	if len(rows) == 0 {
+		// First-time learner — no gap to worry about; the app itself is
+		// the invitation. Don't pile a guilt-shaped modal on top of that.
+		return nil
+	}
+	last := rows[len(rows)-1].Date
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	gap := int(today.Sub(last).Hours() / 24)
+	if gap < 1 {
+		return nil
+	}
+	switch {
+	case gap == 1:
+		return &welcomeBack{
+			Days:     gap,
+			Headline: "Welcome back 🌱",
+			Body:     "One day off is nothing — a five-minute review right now is what turns learning into a habit. Little and often beats big and rare.",
+		}
+	case gap <= 3:
+		return &welcomeBack{
+			Days:     gap,
+			Headline: fmt.Sprintf("It's been %d days — good to see you 💛", gap),
+			Body:     "The learners who actually stick with Chinese are the ones who show up daily, even for two minutes. Let's do a tiny review today and make tomorrow easier.",
+		}
+	case gap <= 7:
+		return &welcomeBack{
+			Days:     gap,
+			Headline: fmt.Sprintf("%d days is a long time — you came back, that's what matters 🌸", gap),
+			Body:     "Momentum is easier to keep than to rebuild. A short daily habit — even just five cards — will do more than any long catch-up session. Ready?",
+		}
+	default:
+		return &welcomeBack{
+			Days:     gap,
+			Headline: "You're here — that's already a win 🌟",
+			Body:     "Chinese rewards consistency more than intensity. Start with a few cards today, then again tomorrow. Progress compounds when the days stack up.",
+		}
+	}
 }
 
 // trophy is a lifetime-review milestone shown as a chip on the home page.
@@ -143,6 +201,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		WordOfDay:  wotd,
 		Contrib:    buildContribGrid(time.Now(), contribRows),
 		HasReviews: totalReviews > 0,
+		Welcome:    buildWelcomeBack(r, contribRows, time.Now()),
 	})
 }
 

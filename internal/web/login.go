@@ -51,7 +51,7 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setSessionCookie(w, r, username, s.cfg.BasicPass)
-	http.Redirect(w, r, next, http.StatusSeeOther)
+	http.Redirect(w, r, appendWelcomeParam(next), http.StatusSeeOther)
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -83,4 +83,15 @@ func safeNextPath(candidate string) string {
 		return "/"
 	}
 	return candidate
+}
+
+// appendWelcomeParam tags the post-login redirect so the landing page knows
+// to show the "keep the streak" modal on this render. Home is the only page
+// that reads it; on any other next-path the parameter is inert.
+func appendWelcomeParam(path string) string {
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	return path + sep + "welcome=1"
 }

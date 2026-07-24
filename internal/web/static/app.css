@@ -1154,3 +1154,49 @@ table.cards .col-check input[type="checkbox"] {
     .chart { max-height: 180px; }
     .chart-label, .chart-value { font-size: 8px; }
 }
+
+/* Post-login "we missed you" modal. Sweet, not scolding — nudges the
+   learner toward a daily routine without blocking access to the page. */
+.welcome-back {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 12, 18, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 1rem;
+    animation: welcome-fade 0.2s ease-out;
+}
+.welcome-back-card {
+    background: var(--card-bg);
+    color: var(--fg);
+    max-width: 460px;
+    width: 100%;
+    padding: 1.5rem 1.75rem;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+    animation: welcome-rise 0.25s ease-out;
+}
+.welcome-back-card h2 { margin: 0 0 0.6rem; font-size: 1.25rem; }
+.welcome-back-card p { margin: 0 0 0.75rem; line-height: 1.55; }
+.welcome-back-tip {
+    font-size: 0.92rem;
+    color: var(--muted);
+    background: rgba(0, 106, 167, 0.06);
+    padding: 0.6rem 0.85rem;
+    border-radius: 6px;
+    border-left: 3px solid var(--accent);
+}
+.welcome-back-actions {
+    display: flex;
+    gap: 0.6rem;
+    margin-top: 1.1rem;
+    flex-wrap: wrap;
+}
+@keyframes welcome-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes welcome-rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}

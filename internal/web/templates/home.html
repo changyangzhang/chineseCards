@@ -1,5 +1,18 @@
 {{define "title"}}Chinese Cards{{end}}
 {{define "content"}}
+{{if .Welcome}}
+<div class="welcome-back" id="welcome-back" role="dialog" aria-modal="true" aria-labelledby="welcome-back-title">
+    <div class="welcome-back-card">
+        <h2 id="welcome-back-title">{{.Welcome.Headline}}</h2>
+        <p>{{.Welcome.Body}}</p>
+        <p class="welcome-back-tip"><strong>Tip:</strong> stack Chinese onto something you already do daily — morning coffee, the commute, brushing teeth. That's how routines are born.</p>
+        <div class="welcome-back-actions">
+            <a class="btn primary" href="/review">Do a quick review</a>
+            <button type="button" class="btn" onclick="document.getElementById('welcome-back').remove()">Not now</button>
+        </div>
+    </div>
+</div>
+{{end}}
 <h1>Today</h1>
 <div class="stat-grid">
     <div class="stat">
