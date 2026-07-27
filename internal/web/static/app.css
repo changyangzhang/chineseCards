@@ -1155,6 +1155,23 @@ table.cards .col-check input[type="checkbox"] {
     .chart-label, .chart-value { font-size: 8px; }
 }
 
+/* Per-card pinyin toggle. Default HIDDEN on every card so learners
+   must first try to produce the sound themselves; a click on the
+   in-card toggle reveals pinyin for that card only. State does NOT
+   persist — the next card starts hidden again. */
+.pinyin-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.75rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+}
+.pinyin-toggle input { margin: 0; cursor: pointer; }
+.pinyin-hidden .pinyin { display: none !important; }
+
 /* Post-login "we missed you" modal. Sweet, not scolding — nudges the
    learner toward a daily routine without blocking access to the page. */
 .welcome-back {

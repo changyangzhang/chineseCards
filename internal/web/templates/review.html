@@ -96,7 +96,7 @@
         {{end}}
     </div>
 
-    <div class="card{{if .Card.IsCloze}} card-cloze{{end}}">
+    <div class="card{{if .Card.IsCloze}} card-cloze{{end}} pinyin-hidden">
         <div class="card-front{{if .Card.IsCloze}} cloze-front{{end}}">
             <span>{{.Card.Front}}</span>
             {{if .Card.IsFrontChinese}}
@@ -105,6 +105,10 @@
         </div>
         {{if .Card.FrontPinyin}}<div class="pinyin pinyin-front">{{.Card.FrontPinyin}}</div>{{end}}
         {{if .Card.HintBelow}}<div class="cloze-hint">{{.Card.HintBelow}}</div>{{end}}
+        <label class="pinyin-toggle">
+            <input type="checkbox" onchange="this.closest('.card').classList.toggle('pinyin-hidden', !this.checked); this.closest('.card-area').querySelector('.choice-grid')?.classList.toggle('pinyin-hidden', !this.checked);">
+            <span>Show pinyin</span>
+        </label>
     </div>
 
     <form hx-post="/review/{{.Card.ID}}" hx-target="#card-area" hx-swap="outerHTML" class="quiz-form">
@@ -113,7 +117,7 @@
         <input type="hidden" name="mode" value="{{.Card.Mode}}">
         <input type="hidden" name="hint" value="{{.Card.HintBelow}}">
 
-        <div class="choice-grid">
+        <div class="choice-grid pinyin-hidden">
             {{range $i, $c := .Card.Choices}}
             <button type="submit" name="choice" value="{{$c}}" class="choice-btn">
                 <span class="choice-body">
