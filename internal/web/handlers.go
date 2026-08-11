@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -837,20 +838,61 @@ type cardRow struct {
 }
 
 type cardsData struct {
-	Rows  []cardRow
-	Total int
-	Typos []store.TypoSuggestion
+	Rows        []cardRow
+	Total       int
+	Typos       []store.TypoSuggestion
+	Sort        string           // active sort column key
+	Dir         string           // "asc" or "desc"
+	Page        int              // 1-indexed
+	PageSize    int              // rows per page
+	TotalPages  int              // ceil(Total / PageSize)
+	FirstRow    int              // 1-indexed index of first row on this page
+	LastRow     int              // 1-indexed index of last row on this page
+	PrevPageURL string           // "" when on page 1
+	NextPageURL string           // "" when on the last page
+	SortHeaders []cardsSortHeader // header cells with their toggle URLs + indicators
+}
+
+// cardsSortHeader is one column header on the cards table: the label the
+// user sees, the sort key it toggles, and the URL to click. Indicator is
+// "↑" / "↓" / "" depending on whether this column is the active sort.
+type cardsSortHeader struct {
+	Key       string
+	Label     string
+	URL       string
+	Indicator string
+	Active    bool
+}
+
+const cardsPageSize = 50
+
+// cardsSortableCols is the ordered list of user-sortable columns on the
+// cards table. Keys must appear in store.cardListSortColumns. Order
+// determines header display order; it also drives sort-key validation
+// (plus the implicit "id" default), so the whitelist lives in one place.
+var cardsSortableCols = []struct{ Key, Label string }{
+	{"front", "Front"},
+	{"back", "Back"},
+	{"kind", "Kind"},
+	{"reps", "Reps"},
+	{"due", "Due"},
 }
 
 func (s *Server) handleCardsList(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	rows, err := s.store.ListCards(ctx, 200, 0)
+
+	q := r.URL.Query()
+	sort, dir := parseCardsSort(q)
+	page := parseCardsPage(q.Get("page"))
+	offset := (page - 1) * cardsPageSize
+
+	total, _ := s.store.CountCards(ctx)
+	rows, err := s.store.ListCardsSorted(ctx, sort, dir, cardsPageSize, offset)
 	if err != nil {
 		slog.Error("list cards", "err", err)
 		http.Error(w, "store error", http.StatusInternalServerError)
 		return
 	}
-	total, _ := s.store.CountCards(ctx)
 
 	out := make([]cardRow, 0, len(rows))
 	now := time.Now()
@@ -865,7 +907,101 @@ func (s *Server) handleCardsList(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	typos, _ := s.store.ListPendingTypos(ctx)
-	s.renderer.Render(w, "cards", cardsData{Rows: out, Total: total, Typos: typos})
+
+	totalPages := (total + cardsPageSize - 1) / cardsPageSize
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	firstRow := offset + 1
+	if len(out) == 0 {
+		firstRow = 0
+	}
+	lastRow := offset + len(out)
+
+	data := cardsData{
+		Rows:        out,
+		Total:       total,
+		Typos:       typos,
+		Sort:        sort,
+		Dir:         dir,
+		Page:        page,
+		PageSize:    cardsPageSize,
+		TotalPages:  totalPages,
+		FirstRow:    firstRow,
+		LastRow:     lastRow,
+		SortHeaders: buildCardsSortHeaders(sort, dir),
+	}
+	if page > 1 {
+		data.PrevPageURL = cardsListURL(sort, dir, page-1)
+	}
+	if page < totalPages {
+		data.NextPageURL = cardsListURL(sort, dir, page+1)
+	}
+	s.renderer.Render(w, "cards", data)
+}
+
+// parseCardsSort validates ?sort= and ?dir= against cardsSortableCols
+// (plus the implicit "id" default), falling back to (id, desc) when
+// either is missing or unknown.
+func parseCardsSort(q url.Values) (string, string) {
+	sort := q.Get("sort")
+	valid := sort == "id"
+	for _, c := range cardsSortableCols {
+		if c.Key == sort {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		sort = "id"
+	}
+	dir := "desc"
+	if q.Get("dir") == "asc" {
+		dir = "asc"
+	}
+	return sort, dir
+}
+
+func parseCardsPage(v string) int {
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 {
+		return 1
+	}
+	return n
+}
+
+func cardsListURL(sort, dir string, page int) string {
+	return fmt.Sprintf("/cards?sort=%s&dir=%s&page=%d", sort, dir, page)
+}
+
+// buildCardsSortHeaders returns one header cell per sortable column.
+// Clicking a non-active header sorts ASC on it; clicking the active
+// header flips its direction. Non-sortable columns (checkbox, actions)
+// are rendered inline in the template.
+func buildCardsSortHeaders(activeSort, activeDir string) []cardsSortHeader {
+	out := make([]cardsSortHeader, 0, len(cardsSortableCols))
+	for _, c := range cardsSortableCols {
+		nextDir := "asc"
+		indicator := ""
+		active := c.Key == activeSort
+		if active {
+			if activeDir == "asc" {
+				nextDir = "desc"
+				indicator = "↑"
+			} else {
+				nextDir = "asc"
+				indicator = "↓"
+			}
+		}
+		out = append(out, cardsSortHeader{
+			Key:       c.Key,
+			Label:     c.Label,
+			URL:       cardsListURL(c.Key, nextDir, 1),
+			Indicator: indicator,
+			Active:    active,
+		})
+	}
+	return out
 }
 
 type settingsData struct {

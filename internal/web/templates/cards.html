@@ -51,26 +51,26 @@
             <th class="col-check">
                 <input type="checkbox" id="check-all" aria-label="Select all">
             </th>
-            <th>Front</th>
-            <th class="col-back">Back</th>
-            <th>Kind</th>
-            <th>Reps</th>
-            <th>Due</th>
+            {{range .SortHeaders}}
+            <th class="col-sort{{if .Active}} col-sort-active{{end}}{{if eq .Key "back"}} col-back{{end}}">
+                <a href="{{.URL}}" class="sort-link">{{.Label}}<span class="sort-indicator">{{.Indicator}}</span></a>
+            </th>
+            {{end}}
             <th></th>
         </tr>
         </thead>
         <tbody>
         {{range .Rows}}
         <tr>
-            <td class="col-check">
+            <td class="col-check" data-label="">
                 <input type="checkbox" class="card-check" name="card_ids" value="{{.ID}}" form="bulk-delete-form" aria-label="Select card">
             </td>
-            <td>{{.Front}}</td>
-            <td class="col-back">{{.Back}}</td>
-            <td><span class="kind kind-{{.Kind}}">{{.Kind}}</span></td>
-            <td>{{.Reps}}</td>
-            <td>{{.DueRel}}</td>
-            <td class="row-actions">
+            <td data-label="Front">{{.Front}}</td>
+            <td class="col-back" data-label="Back">{{.Back}}</td>
+            <td data-label="Kind"><span class="kind kind-{{.Kind}}">{{.Kind}}</span></td>
+            <td data-label="Reps">{{.Reps}}</td>
+            <td data-label="Due">{{.DueRel}}</td>
+            <td class="row-actions" data-label="">
                 <a href="/cards/{{.ID}}/edit" class="edit-link" title="Edit card">✎</a>
                 <form method="post" action="/cards/{{.ID}}/delete" style="display:inline"
                       onsubmit="return confirm('Delete this card and its entry? This also removes any AI-generated example sentences for it.');">
@@ -82,6 +82,25 @@
         </tbody>
     </table>
 </div>
+
+{{if gt .TotalPages 1}}
+<nav class="pagination" aria-label="Cards pagination">
+    {{if .PrevPageURL}}
+    <a class="btn btn-sm" href="{{.PrevPageURL}}">← Prev</a>
+    {{else}}
+    <span class="btn btn-sm btn-disabled" aria-disabled="true">← Prev</span>
+    {{end}}
+    <span class="pagination-info">
+        <strong>{{.FirstRow}}–{{.LastRow}}</strong> of {{.Total}}
+        <span class="muted">· page {{.Page}} / {{.TotalPages}}</span>
+    </span>
+    {{if .NextPageURL}}
+    <a class="btn btn-sm" href="{{.NextPageURL}}">Next →</a>
+    {{else}}
+    <span class="btn btn-sm btn-disabled" aria-disabled="true">Next →</span>
+    {{end}}
+</nav>
+{{end}}
 
 <script>
     (function () {

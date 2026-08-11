@@ -1145,14 +1145,94 @@ table.cards .col-check input[type="checkbox"] {
     /* Hide keyboard hints on touch screens — no keyboard. */
     .kbd { display: none; }
 
-    /* Cards table: scroll horizontally rather than wrap awkwardly. */
-    .cards-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-    table.cards { font-size: 0.9rem; }
-    table.cards th, table.cards td { padding: 0.5rem 0.6rem; white-space: nowrap; }
-    table.cards td.col-back { white-space: normal; }
+    /* Cards table on mobile: stack each row as its own card. The <thead>
+       is visually hidden (kept for a11y) and each <td> renders its
+       column label from data-label so users still know what each field
+       means without a horizontal scroll. */
+    .cards-wrap { overflow-x: visible; }
+    table.cards, table.cards thead, table.cards tbody,
+    table.cards tr, table.cards th, table.cards td {
+        display: block;
+    }
+    table.cards thead {
+        position: absolute;
+        left: -10000px;
+        top: auto;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+    }
+    table.cards tr {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        margin-bottom: 0.75rem;
+        padding: 0.5rem 0.75rem;
+        background: var(--card-bg);
+    }
+    table.cards td {
+        border: none;
+        padding: 0.35rem 0;
+        white-space: normal;
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 0.75rem;
+    }
+    table.cards td[data-label]::before {
+        content: attr(data-label);
+        color: var(--muted);
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        flex: 0 0 auto;
+    }
+    table.cards td[data-label=""]::before { content: none; }
+    table.cards td.col-check {
+        justify-content: flex-start;
+    }
+    table.cards td.row-actions {
+        justify-content: flex-end;
+        border-top: 1px dashed var(--border);
+        padding-top: 0.5rem;
+        margin-top: 0.35rem;
+    }
+
+    .pagination { flex-wrap: wrap; gap: 0.5rem; justify-content: center; }
+    .pagination-info { text-align: center; font-size: 0.9rem; }
 
     .chart { max-height: 180px; }
     .chart-label, .chart-value { font-size: 8px; }
+}
+
+/* Sortable column headers on the cards table. Click cycles asc/desc;
+   the active column shows an arrow indicator. */
+table.cards th.col-sort { padding: 0; }
+table.cards th.col-sort .sort-link {
+    display: block;
+    padding: 0.6rem 0.85rem;
+    color: inherit;
+    text-decoration: none;
+    text-transform: inherit;
+    letter-spacing: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+table.cards th.col-sort .sort-link:hover { color: var(--fg); }
+table.cards th.col-sort-active .sort-link { color: var(--accent); }
+.sort-indicator { display: inline-block; margin-left: 0.35rem; }
+
+/* Pagination row under the cards table. */
+.pagination {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin: 1rem 0 1.5rem;
+}
+.pagination-info { flex: 1; text-align: center; color: var(--fg); }
+.btn.btn-disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
 }
 
 /* Per-card pinyin toggle. Default HIDDEN on every card so learners

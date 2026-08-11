@@ -174,11 +174,41 @@ type CardListRow struct {
 	Reps       int
 }
 
+// cardListSortColumns whitelists user-supplied sort keys to real SQL
+// column expressions. Anything not in this map falls back to c.id — no
+// string interpolation ever touches user input.
+var cardListSortColumns = map[string]string{
+	"id":    "c.id",
+	"front": "c.front",
+	"back":  "c.back",
+	"kind":  "e.kind",
+	"reps":  "c.repetitions",
+	"due":   "c.due_at",
+}
+
 func (s *Store) ListCards(ctx context.Context, limit, offset int) ([]CardListRow, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	return s.ListCardsSorted(ctx, "id", "desc", limit, offset)
+}
+
+// ListCardsSorted is ListCards with server-side ordering. `sort` must be
+// one of the keys in cardListSortColumns; `dir` is "asc" or "desc"
+// (anything else defaults to desc). Invalid inputs silently fall back to
+// (id, desc) so a bad URL never 500s.
+func (s *Store) ListCardsSorted(ctx context.Context, sort, dir string, limit, offset int) ([]CardListRow, error) {
+	col, ok := cardListSortColumns[sort]
+	if !ok {
+		col = "c.id"
+	}
+	direction := "DESC"
+	if dir == "asc" {
+		direction = "ASC"
+	}
+	// #nosec G202 — col and direction come from whitelists above, not user input.
+	query := `
 		SELECT c.id, c.card_type, c.front, c.back, e.chinese_raw, e.kind, c.due_at, c.last_reviewed, c.repetitions
 		FROM cards c JOIN entries e ON e.id = c.entry_id
-		ORDER BY c.id DESC LIMIT ? OFFSET ?`, limit, offset)
+		ORDER BY ` + col + ` ` + direction + `, c.id DESC LIMIT ? OFFSET ?`
+	rows, err := s.db.QueryContext(ctx, query, limit, offset)
 	if err != nil {
 		return nil, err
 	}
